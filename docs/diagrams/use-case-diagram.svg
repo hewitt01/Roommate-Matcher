@@ -1,0 +1,72 @@
+<svg width="680" height="706" viewBox="0 0 680 706" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<title>RoomMatch AI use case diagram</title>
+<desc>User actor connects to nine use cases inside the RoomMatch AI system boundary; platform data source and LLM service are external actors supporting ranking and AI reasoning use cases.</desc>
+<rect width="680" height="706" fill="#ffffff"/>
+<line x1="130" y1="385" x2="190" y2="129" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="193" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="257" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="321" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="385" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="449" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="513" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="577" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="130" y1="385" x2="190" y2="641" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="504" y1="170" x2="450" y2="257" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="504" y1="475" x2="450" y2="129" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="504" y1="475" x2="450" y2="257" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="504" y1="475" x2="450" y2="321" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="504" y1="475" x2="450" y2="385" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<line x1="504" y1="475" x2="450" y2="449" stroke="#9c9a92" stroke-width="0.75" opacity="0.6"/>
+<rect x="170" y="60" width="310" height="626" rx="20" fill="#f4f4f2" stroke="#73726c" stroke-width="1"/>
+<text x="325" y="84" text-anchor="middle" font-size="14" font-weight="600" fill="#3d3d3a">RoomMatch AI system</text>
+<g>
+<rect x="190" y="104" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="133" text-anchor="middle" font-size="14" fill="#1e3a5f">Elicit lifestyle profile</text>
+</g>
+<g>
+<rect x="190" y="168" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="197" text-anchor="middle" font-size="14" fill="#1e3a5f">Manage profile</text>
+</g>
+<g>
+<rect x="190" y="232" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="261" text-anchor="middle" font-size="14" fill="#1e3a5f">Request ranked matches</text>
+</g>
+<g>
+<rect x="190" y="296" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="325" text-anchor="middle" font-size="14" fill="#1e3a5f">View match explanation</text>
+</g>
+<g>
+<rect x="190" y="360" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="389" text-anchor="middle" font-size="14" fill="#1e3a5f">Generate friction map</text>
+</g>
+<g>
+<rect x="190" y="424" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="453" text-anchor="middle" font-size="14" fill="#1e3a5f">Ask question about match</text>
+</g>
+<g>
+<rect x="190" y="488" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="517" text-anchor="middle" font-size="14" fill="#1e3a5f">Set hard filters</text>
+</g>
+<g>
+<rect x="190" y="552" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="581" text-anchor="middle" font-size="14" fill="#1e3a5f">Manage shortlist</text>
+</g>
+<g>
+<rect x="190" y="616" width="260" height="50" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+<text x="320" y="645" text-anchor="middle" font-size="14" fill="#1e3a5f">Update profile and re-rank</text>
+</g>
+<g>
+<rect x="40" y="365" width="90" height="40" rx="8" fill="#f4f4f2" stroke="#73726c" stroke-width="1"/>
+<text x="85" y="389" text-anchor="middle" font-size="14" font-weight="600" fill="#3d3d3a">User</text>
+</g>
+<g>
+<rect x="504" y="150" width="130" height="40" rx="8" fill="#f4f4f2" stroke="#73726c" stroke-width="1"/>
+<text x="569" y="167" text-anchor="middle" font-size="12" fill="#3d3d3a">Platform</text>
+<text x="569" y="184" text-anchor="middle" font-size="12" fill="#3d3d3a">data source</text>
+</g>
+<g>
+<rect x="504" y="450" width="130" height="50" rx="8" fill="#f4f4f2" stroke="#73726c" stroke-width="1"/>
+<text x="569" y="469" text-anchor="middle" font-size="12" fill="#3d3d3a">LLM service</text>
+<text x="569" y="486" text-anchor="middle" font-size="12" fill="#3d3d3a">(Claude)</text>
+</g>
+</svg>
