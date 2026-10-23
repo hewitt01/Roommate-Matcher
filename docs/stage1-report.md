@@ -79,10 +79,10 @@ When the user edits their profile (F02) or lifestyle answers (F01) through the *
 
 ```mermaid
 classDiagram
-  class RoomMatchGUI { +startElicitation() +requestRanking() +viewFrictionMap() }
-  class RoomMatchCLI { +startElicitation() +requestRanking() +viewFrictionMap() }
-  class AgentController { +runElicitation(user) +confirmElicitation(user) +getRankedMatches(user) +getFrictionMap(user, candidate) +answerMatchQuestion(user, candidate, q) +updateProfile(user, fields) }
-  class User { -String id -double budget -String location -Date moveInDate +applyUpdate(fields) +attachLifestyleProfile(profile) }
+  class RoomMatchGUI { +startElicitation() +requestRanking() +viewFrictionMap() +editProfile(fields) +requestExplanation(candidate) +askQuestion(candidate, question) +bookmark(candidate) +removeBookmark(candidate) }
+  class RoomMatchCLI { +startElicitation() +requestRanking() +viewFrictionMap() +editProfile(fields) +requestExplanation(candidate) +askQuestion(candidate, question) +bookmark(candidate) +removeBookmark(candidate) }
+  class AgentController { +runElicitation(user) +confirmElicitation(user) +getRankedMatches(user) +getFrictionMap(user, candidate) +answerMatchQuestion(user, candidate, q) +updateProfile(user, fields) +startSession(user) +getExplanation(result) }
+  class User { -String id -double budget -String location -Date moveInDate +applyUpdate(fields) +attachLifestyleProfile(profile) +attach(o) +detach(o) +notifyObservers() }
   class LifestyleProfile { -String cleanliness -String noiseTolerance -String guestFrequency -String sleepSchedule -boolean isComplete }
   class Shortlist { -List~User~ bookmarked +add(candidate) +remove(candidate) }
   class CompatibilityResult { -double scoreAtoB -double scoreBtoA -String explanation }
@@ -104,39 +104,48 @@ classDiagram
   class FrictionMapGenerator { <<AI component>> +generate(userProfile, candProfile) }
   class LLMClient { <<AI component>> +generate(prompt) }
   class RankingService { +onProfileChanged(user) +flagStale(user) }
+  class ProfileSubject { <<interface>> +attach(o) +detach(o) +notifyObservers() }
+  class ProfileObserver { <<interface>> +onProfileChanged(user) }
+  class HousingPlatformClient { <<adaptee>> +fetchUserRecord(id) +listCandidates(filter) }
 
-  RoomMatchGUI ..> AgentController
-  RoomMatchCLI ..> AgentController
-  AgentController --> ElicitationAgent
-  AgentController --> CompatibilityAgent
-  AgentController --> FrictionMapGenerator
-  AgentController --> ExplanationGenerator
-  AgentController --> ToolManager
+  RoomMatchGUI "1" ..> "1" AgentController
+  RoomMatchCLI "1" ..> "1" AgentController
+  AgentController "1" --> "1" ElicitationAgent
+  AgentController "1" --> "1" CompatibilityAgent
+  AgentController "1" --> "1" FrictionMapGenerator
+  AgentController "1" --> "1" ExplanationGenerator
+  AgentController "1" --> "1" ToolManager
+  AgentController "*" --> "1" LLMClient
 
-  User "1" *-- "1" LifestyleProfile
+  User "1" *-- "0..1" LifestyleProfile
   User "1" --> "1" Shortlist
-  Shortlist "1" o-- "*" User : bookmarked
+  Shortlist "1" o-- "0..*" User : bookmarked
 
   CandidateRepository <|.. PlatformProfileAdapter
+  PlatformProfileAdapter "1" --> "1" HousingPlatformClient : adaptee
   Tool <|.. ProfileAccessTool
-  ProfileAccessTool --> CandidateRepository
-  ToolManager o-- "*" Tool
+  ProfileAccessTool "1" --> "1" CandidateRepository
+  ToolManager "1" o-- "1..*" Tool
 
-  ElicitationAgent --> ElicitationState
+  ElicitationAgent "1" --> "1" ElicitationState
   ElicitationState <|.. AskingDimensionState
   ElicitationState <|.. ClarifyingState
   ElicitationState <|.. CompleteState
-  ElicitationAgent --> LLMClient
+  ElicitationAgent "*" --> "1" LLMClient
 
-  CompatibilityAgent --> CompatibilityScorer
+  CompatibilityAgent "1" --> "1" CompatibilityScorer
   CompatibilityScorer <|.. LLMCompatibilityScorer
-  LLMCompatibilityScorer --> LLMClient
-  CompatibilityAgent --> ToolManager
-  CompatibilityAgent "1" --> "*" CompatibilityResult
-  ExplanationGenerator --> CompatibilityResult
-  FrictionMapGenerator --> FrictionMap
-  FrictionMapGenerator --> CompatibilityResult
-  RankingService ..> User : observes
+  LLMCompatibilityScorer "*" --> "1" LLMClient
+  CompatibilityAgent "1" --> "1" ToolManager
+  CompatibilityAgent "1" --> "0..*" CompatibilityResult
+  ExplanationGenerator "1" --> "0..*" CompatibilityResult
+  ExplanationGenerator "*" --> "1" LLMClient
+  FrictionMapGenerator "1" --> "0..*" FrictionMap
+  FrictionMapGenerator "1" --> "0..*" CompatibilityResult
+
+  ProfileSubject <|.. User
+  ProfileObserver <|.. RankingService
+  ProfileSubject "1" o-- "0..*" ProfileObserver : observers
 ```
 
 The `<<AI component>>` tag marks classes whose behavior is driven by LLM reasoning rather than fixed logic. All other classes are deterministic: data holders, repositories, or plain orchestration.
@@ -152,8 +161,8 @@ The `<<AI component>>` tag marks classes whose behavior is driven by LLM reasoni
 
 **2. Adapter: `PlatformProfileAdapter`**
 *Problem addressed:* The agent needs candidate profile data, but the assignment assumes the system plugs into an existing platform whose actual data source is unspecified and out of our control.
-*Participants:* `CandidateRepository` (target interface); `PlatformProfileAdapter` (adapter).
-*Rationale:* It isolates the agent from the platform's specific data format and protocol. Without it, the agent's reasoning code would be coupled directly to platform-specific data access logic.
+*Participants:* `CandidateRepository` (target interface); `PlatformProfileAdapter` (adapter); `HousingPlatformClient` (adaptee, the platform's own API: `fetchUserRecord(id)`, `listCandidates(filter)`).
+*Rationale:* It isolates the agent from the platform's specific data format and protocol. The adapter calls the adaptee and translates the platform's records into `User` objects. Without it, the agent's reasoning code would be coupled directly to platform-specific data access logic.
 
 **3. Strategy: `CompatibilityScorer`**
 *Problem addressed:* Asymmetric compatibility scoring is the project's core reasoning task, and how it's computed shouldn't be hardwired into the agent that uses it.
@@ -167,7 +176,7 @@ The `<<AI component>>` tag marks classes whose behavior is driven by LLM reasoni
 
 **5. Observer: `RankingService`**
 *Problem addressed:* When a user edits their profile, previously computed rankings become stale, but the profile-editing code shouldn't need to know about ranking internals to trigger that check.
-*Participants:* `User` (subject); `RankingService` (observer).
+*Participants:* `ProfileSubject` (subject interface: `attach`, `detach`, `notifyObservers`); `User` (concrete subject); `ProfileObserver` (observer interface: `onProfileChanged`); `RankingService` (concrete observer). `AgentController.startSession(user)` registers `RankingService` with `attach`; `User.applyUpdate()` and `attachLifestyleProfile()` call `notifyObservers()`.
 *Rationale:* This decouples "a profile changed" from "something needs to happen to rankings because of it." Without it, every profile-editing code path would need to remember to manually check and invalidate rankings.
 
 ---
@@ -176,13 +185,13 @@ The `<<AI component>>` tag marks classes whose behavior is driven by LLM reasoni
 
 ![Use case diagram](diagrams/use-case-diagram.svg)
 
-Actors: **User** (primary), **Platform data source** (external, supports candidate retrieval), **LLM service, Claude** (external, supports AI reasoning). All 9 use cases below cover all 10 features (F04 folds into UC03 as an internal reasoning step, not a separate user-facing interaction). **UC09 extends UC02**: it only triggers when an edit actually changes ranking-relevant data.
+Actors: **User** (primary), **Platform data source** (external, supports candidate retrieval), **LLM service, Claude** (external, supports AI reasoning). All 9 use cases below cover all 10 features (F04 is not a separate use case: it is the internal scoring step inside UC03, which UC03's description below keeps distinct from ranking itself). **UC09 extends UC02**: it only triggers when an edit actually changes ranking-relevant data.
 
 **UC01 - Elicit lifestyle profile.** *Actor:* User. *Goal:* Build a structured tolerance profile through conversation. *Preconditions:* User has an account. *Trigger:* User starts onboarding or requests to redo their profile. *Main flow:* Agent asks a question, user responds, agent interprets and asks a follow-up or moves on, repeats until profile is complete, user confirms. *Alt/exception flows:* Vague answer leads to agent clarifying; user abandons and partial profile is saved. *Postcondition:* A complete or partial `LifestyleProfile` is saved. *Related feature:* F01.
 
 **UC02 - Manage profile.** *Actor:* User. *Goal:* Set or edit account fields. *Preconditions:* User is logged in. *Trigger:* User opens profile settings. *Main flow:* User edits fields, system validates, then saves. *Alt/exception flows:* Invalid input rejected inline; required field blank blocks save. *Postcondition:* `User` record updated. *Related feature:* F02.
 
-**UC03 - Request ranked matches.** *Actor:* User; supported by Platform data source, LLM service. *Goal:* Get a ranked list of compatible candidates. *Preconditions:* User's profile and lifestyle data are complete; hard filters (if any) are set. *Trigger:* User requests matches. *Main flow:* Agent retrieves candidates via the repository tool, reasons over asymmetric compatibility for each, ranks them, and returns the list. *Alt/exception flows:* No candidates after filters leads the system to suggest relaxing constraints; incomplete profile blocks ranking and redirects to UC01/UC02. *Postcondition:* A ranked `CompatibilityResult` list is returned. *Related feature:* F03, F04.
+**UC03 - Request ranked matches.** *Actor:* User; supported by Platform data source, LLM service. *Goal:* Get a ranked list of compatible candidates. *Preconditions:* User's profile and lifestyle data are complete; hard filters (if any) are set. *Trigger:* User requests matches. *Main flow:* **Ranking (F03):** agent retrieves candidates via the repository tool, runs the scoring step for each one, orders the results, and returns the list. **Scoring step (F04, internal, once per candidate, never triggered directly by the user):** agent evaluates user-to-candidate and candidate-to-user tolerance independently and produces one `CompatibilityResult` holding both values. *Alt/exception flows:* No candidates after filters leads the system to suggest relaxing constraints; incomplete profile blocks ranking and redirects to UC01/UC02. *Postcondition:* An ordered list of `CompatibilityResult`s is returned (ranking), and each result holds two directional values (scoring). *Related feature:* F03 (ranking), F04 (scoring step).
 
 **UC04 - View match explanation.** *Actor:* User; supported by LLM service. *Goal:* Understand why a candidate was ranked as they were. *Preconditions:* A ranked list exists. *Trigger:* User selects "why this match?" on a candidate. *Main flow:* Agent generates an explanation from the stored `CompatibilityResult` and displays it. *Alt/exception flows:* Scoring data missing or stale leads the agent to regenerate it before explaining. *Postcondition:* Explanation displayed to user. *Related feature:* F05.
 
@@ -200,7 +209,7 @@ Actors: **User** (primary), **Platform data source** (external, supports candida
 
 ## 7. Sequence Diagrams
 
-Four diagrams cover every design pattern and every distinct interaction shape in the system. UC02, UC07, and UC08 are simple validate-and-save or add/remove operations with no distinct pattern behavior and are not separately diagrammed. UC04 (Match Explanation) and UC06 (Match Q&A) follow the same structural shape as Diagram 3 (fetch stored result, call LLM, return content) and are not separately diagrammed either.
+Eight diagrams cover every feature. F08 (hard filters) has no interaction of its own: the filters are the arguments of the platform call in the data-fetch step of 7.2. F02, F05, F07, and F09 each have their own diagram (7.5 to 7.8).
 
 ### 7.1 Lifestyle Elicitation (F01 / UC01): State pattern
 
@@ -257,6 +266,7 @@ sequenceDiagram
   participant TM as ToolManager
   participant PAT as ProfileAccessTool
   participant PPA as PlatformProfileAdapter
+  participant HPC as HousingPlatformClient
   participant SC as LLMCompatibilityScorer
   participant LLM as LLMClient
 
@@ -266,6 +276,8 @@ sequenceDiagram
   CA->>TM: invoke(profileAccessTool, user)
   TM->>PAT: execute(user)
   PAT->>PPA: getCandidates(user)
+  PPA->>HPC: listCandidates(filter)
+  HPC-->>PPA: platform records
   PPA-->>PAT: candidate list
   PAT-->>TM: candidate list
   TM-->>CA: candidate list
@@ -314,10 +326,14 @@ sequenceDiagram
   participant RS as RankingService
   participant CA as CompatibilityAgent
 
+  Note over GUI,UM: session start registers the observer
+  GUI->>AC: startSession(user)
+  AC->>UM: attach(rankingService)
   User->>GUI: editProfile(fields)
   GUI->>AC: updateProfile(user, fields)
   AC->>UM: applyUpdate(fields)
-  UM-->>RS: onProfileChanged(user)
+  UM->>UM: notifyObservers()
+  UM->>RS: onProfileChanged(user)
   RS->>RS: flagStale(user)
   AC-->>GUI: promptReRank()
   GUI-->>User: profile updated, re-rank?
@@ -333,6 +349,94 @@ sequenceDiagram
   end
 ```
 
+### 7.5 Profile Setup & Editing (F02 / UC02)
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant GUI as RoomMatchGUI
+  participant AC as AgentController
+  participant UM as User object
+
+  User->>GUI: editProfile(fields)
+  GUI->>AC: updateProfile(user, fields)
+  alt fields invalid or required field blank
+    AC-->>GUI: validation error
+    GUI-->>User: inline error message
+  else fields valid
+    AC->>UM: applyUpdate(fields)
+    UM->>UM: notifyObservers()
+    Note over UM: observers notified, see 7.4
+    AC-->>GUI: saved
+    GUI-->>User: confirmation
+  end
+```
+
+### 7.6 Match Explanation (F05 / UC04)
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant GUI as RoomMatchGUI
+  participant AC as AgentController
+  participant CA as CompatibilityAgent
+  participant EG as ExplanationGenerator
+  participant LLM as LLMClient
+
+  User->>GUI: requestExplanation(candidate)
+  GUI->>AC: getExplanation(result)
+  opt scoring data missing or stale
+    AC->>CA: rankCandidates(user)
+    CA-->>AC: fresh results
+  end
+  AC->>EG: generate(result)
+  EG->>LLM: generate(prompt)
+  LLM-->>EG: explanation text
+  EG-->>AC: explanation
+  AC-->>GUI: explanation
+  GUI-->>User: display "Why this match?"
+```
+
+### 7.7 Match Q&A (F07 / UC06)
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant GUI as RoomMatchGUI
+  participant AC as AgentController
+  participant LLM as LLMClient
+
+  User->>GUI: askQuestion(candidate, question)
+  GUI->>AC: answerMatchQuestion(user, candidate, question)
+  AC->>LLM: generate(prompt)
+  LLM-->>AC: answer or insufficient-data signal
+  AC-->>GUI: answer or "cannot be determined from available data"
+  GUI-->>User: display response
+```
+
+### 7.8 Saved Matches / Shortlist (F09 / UC08)
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant GUI as RoomMatchGUI
+  participant SL as Shortlist
+
+  User->>GUI: bookmark(candidate)
+  GUI->>SL: add(candidate)
+  alt candidate deleted or deactivated
+    SL-->>GUI: unavailable
+    GUI-->>User: show "no longer available"
+  else candidate active
+    SL-->>GUI: added
+    GUI-->>User: confirmation
+  end
+  User->>GUI: removeBookmark(candidate)
+  GUI->>SL: remove(candidate)
+  SL-->>GUI: removed
+  GUI-->>User: confirmation
+```
+
 ---
 
 ## 8. Feature-to-Design Traceability Table
@@ -340,15 +444,15 @@ sequenceDiagram
 | Feature | Use Case | Key Classes | Key Methods | Sequence Diagram | Design Pattern(s) |
 |---|---|---|---|---|---|
 | F01 Lifestyle Elicitation | UC01 | `ElicitationAgent`, `ElicitationState`, `AskingDimensionState`, `ClarifyingState`, `CompleteState`, `LLMClient`, `LifestyleProfile`, `User` | `askNext()`, `handleResponse()`, `handle()`, `confirmElicitation()`, `finalize()`, `attachLifestyleProfile()` | 7.1 | State |
-| F02 Profile Setup & Editing | UC02 | `User`, `AgentController` | `updateProfile()`, `applyUpdate()` | None (simple CRUD) | None |
-| F03 Candidate Ranking | UC03 | `AgentController`, `CompatibilityAgent`, `ToolManager`, `ProfileAccessTool`, `PlatformProfileAdapter`, `CandidateRepository`, `LLMCompatibilityScorer`, `LLMClient` | `getRankedMatches()`, `rankCandidates()`, `invoke()`, `execute()`, `getCandidates()`, `score()` | 7.2 | Facade, Adapter, Strategy |
+| F02 Profile Setup & Editing | UC02 | `User`, `AgentController` | `updateProfile()`, `applyUpdate()`, `notifyObservers()` | 7.5 | Observer (notification step) |
+| F03 Candidate Ranking | UC03 | `AgentController`, `CompatibilityAgent`, `ToolManager`, `ProfileAccessTool`, `PlatformProfileAdapter`, `HousingPlatformClient`, `CandidateRepository`, `LLMCompatibilityScorer`, `LLMClient` | `getRankedMatches()`, `rankCandidates()`, `invoke()`, `execute()`, `getCandidates()`, `score()` | 7.2 | Facade, Adapter, Strategy |
 | F04 Asymmetric Compatibility Scoring | UC03 (internal) | `CompatibilityScorer`, `LLMCompatibilityScorer`, `LLMClient`, `CompatibilityResult` | `score()`, `generate()` | 7.2 | Strategy |
-| F05 Match Explanation | UC04 | `AgentController`, `ExplanationGenerator`, `CompatibilityResult` | `generate()` | Same shape as 7.3 | Facade |
+| F05 Match Explanation | UC04 | `AgentController`, `CompatibilityAgent`, `ExplanationGenerator`, `LLMClient`, `CompatibilityResult` | `getExplanation()`, `rankCandidates()`, `generate()` | 7.6 | Facade |
 | F06 Friction Map Generation | UC05 | `AgentController`, `FrictionMapGenerator`, `LLMClient`, `CompatibilityResult`, `FrictionMap` | `getFrictionMap()`, `generate()` | 7.3 | Facade |
-| F07 Match Q&A | UC06 | `AgentController`, `LLMClient` | `answerMatchQuestion()` | Same shape as 7.3 | Facade |
-| F08 Hard Filters | UC07 | `CandidateRepository`, `PlatformProfileAdapter`, `User` | `getCandidates()` (filtered) | Folds into 7.2's data-fetch step | Adapter |
-| F09 Saved Matches / Shortlist | UC08 | `Shortlist`, `User` | `add()`, `remove()` | None (simple aggregation) | None |
-| F10 Profile Update to Re-rank | UC09 | `User`, `RankingService`, `AgentController`, `CompatibilityAgent` | `applyUpdate()`, `onProfileChanged()`, `flagStale()`, `rankCandidates()` | 7.4 | Observer |
+| F07 Match Q&A | UC06 | `AgentController`, `LLMClient` | `answerMatchQuestion()`, `generate()` | 7.7 | Facade |
+| F08 Hard Filters | UC07 | `CandidateRepository`, `PlatformProfileAdapter`, `HousingPlatformClient`, `User` | `getCandidates()`, `listCandidates()` | 7.2 (the `getCandidates` to `listCandidates` messages) | Adapter |
+| F09 Saved Matches / Shortlist | UC08 | `Shortlist`, `User` | `add()`, `remove()` | 7.8 | None |
+| F10 Profile Update to Re-rank | UC09 | `User`, `ProfileSubject`, `ProfileObserver`, `RankingService`, `AgentController`, `CompatibilityAgent` | `startSession()`, `attach()`, `applyUpdate()`, `notifyObservers()`, `onProfileChanged()`, `flagStale()`, `rankCandidates()` | 7.4 | Observer |
 
 ---
 
@@ -356,20 +460,20 @@ sequenceDiagram
 
 **F01 - Lifestyle Elicitation.** The GUI/CLI calls `AgentController.runElicitation(user)`, which delegates to `ElicitationAgent.askNext(user)`. The agent holds a reference to its current `ElicitationState` and calls `handle()` on it. That state calls `LLMClient.generate()` to phrase a question, and on each user reply, it interprets the answer and decides whether to transition to `ClarifyingState`, the next `AskingDimensionState`, or `CompleteState`. Once complete, the agent creates a `LifestyleProfile`, and once the user confirms, `AgentController.confirmElicitation()` calls `ElicitationAgent.finalize()`, which calls `User.attachLifestyleProfile()` to attach it. See section 7.1.
 
-**F02 - Profile Setup & Editing.** The GUI/CLI calls `AgentController.updateProfile(user, fields)`, which delegates to `User.applyUpdate(fields)` after validation. No AI or agent classes are involved.
+**F02 - Profile Setup & Editing.** The GUI/CLI calls `AgentController.updateProfile(user, fields)`, which delegates to `User.applyUpdate(fields)` after validation; `applyUpdate` then calls `notifyObservers()` (see F10). No AI or agent classes are involved. See section 7.5.
 
-**F03 - Candidate Ranking.** `AgentController.getRankedMatches(user)` delegates to `CompatibilityAgent.rankCandidates(user)`, which invokes `ToolManager` to run `ProfileAccessTool`. That tool calls `PlatformProfileAdapter.getCandidates()` (implementing `CandidateRepository`) to retrieve the eligible pool. For each candidate, the agent calls `LLMCompatibilityScorer.score()` (the concrete `CompatibilityScorer` strategy), which calls `LLMClient.generate()` to reason about the pair and returns a `CompatibilityResult`. The agent sorts these into a ranked list. See section 7.2.
+**F03 - Candidate Ranking.** `AgentController.getRankedMatches(user)` delegates to `CompatibilityAgent.rankCandidates(user)`, which invokes `ToolManager` to run `ProfileAccessTool`. That tool calls `PlatformProfileAdapter.getCandidates()` (implementing `CandidateRepository`), which calls `HousingPlatformClient.listCandidates()` and converts the platform records into `User` objects, to retrieve the eligible pool. For each candidate, the agent calls `LLMCompatibilityScorer.score()` (the concrete `CompatibilityScorer` strategy), which calls `LLMClient.generate()` to reason about the pair and returns a `CompatibilityResult`. The agent sorts these into a ranked list. See section 7.2.
 
 **F04 - Asymmetric Compatibility Scoring.** This is not a separate call path but the reasoning inside `LLMCompatibilityScorer.score()` from F03. The LLM prompt evaluates both directions of tolerance (user to candidate and candidate to user) independently, and both values are stored on the resulting `CompatibilityResult` rather than collapsed into one symmetric number. See section 7.2.
 
-**F05 - Match Explanation.** `AgentController` calls `ExplanationGenerator.generate(result)`, passing the relevant `CompatibilityResult` computed during F03/F04. The generator calls `LLMClient` to turn the stored asymmetric scores into a natural-language explanation, returned to the interface. This is structurally identical to section 7.3, with `ExplanationGenerator` in place of `FrictionMapGenerator`.
+**F05 - Match Explanation.** `AgentController.getExplanation(result)` calls `ExplanationGenerator.generate(result)`, passing the relevant `CompatibilityResult` computed during F03/F04. The generator calls `LLMClient` to turn the stored asymmetric scores into a natural-language explanation, returned to the interface. If the scoring data is missing or stale, the controller first re-runs `CompatibilityAgent.rankCandidates()`. See section 7.6.
 
 **F06 - Friction Map Generation.** `AgentController.getFrictionMap(user, candidate)` calls `FrictionMapGenerator.generate()`, passing both profiles and the existing `CompatibilityResult`. The generator calls `LLMClient.generate()` to produce friction points and suggested rules, then constructs a `FrictionMap` object returned to the interface. See section 7.3.
 
-**F07 - Match Q&A.** `AgentController.answerMatchQuestion(user, candidate, question)` passes the candidate's profile, the stored `CompatibilityResult`, and the user's free-text question to `LLMClient.generate()`, which grounds its answer in that data rather than fabricating one. This is structurally identical to section 7.3, with the LLM called directly by the controller rather than through a dedicated generator class, since no persistent output object is produced.
+**F07 - Match Q&A.** `AgentController.answerMatchQuestion(user, candidate, question)` passes the candidate's profile, the stored `CompatibilityResult`, and the user's free-text question to `LLMClient.generate()`, which grounds its answer in that data rather than fabricating one. The LLM is called directly by the controller rather than through a dedicated generator class, since no persistent output object is produced. See section 7.7.
 
-**F08 - Hard Filters.** The GUI/CLI passes filter constraints into the same `PlatformProfileAdapter.getCandidates()` call used in F03, narrowing the pool before any AI reasoning runs. No new classes are introduced.
+**F08 - Hard Filters.** The GUI/CLI passes filter constraints into the same `PlatformProfileAdapter.getCandidates()` call used in F03, narrowing the pool before any AI reasoning runs. The adapter forwards the filters to `HousingPlatformClient.listCandidates()`. See the data-fetch step of section 7.2.
 
-**F09 - Saved Matches / Shortlist.** The GUI/CLI calls `Shortlist.add(candidate)` or `Shortlist.remove(candidate)` directly. No agent or LLM involvement.
+**F09 - Saved Matches / Shortlist.** The GUI/CLI calls `Shortlist.add(candidate)` or `Shortlist.remove(candidate)` directly. No agent or LLM involvement. See section 7.8.
 
-**F10 - Profile Update to Re-rank.** When `User.applyUpdate()` (F02) or `User.attachLifestyleProfile()` (F01) modifies the user's data, it notifies `RankingService.onProfileChanged(user)`, which calls `flagStale()` for that user's existing rankings. The profile classes only know they changed, not that ranking logic depends on it. If the user opts to re-rank, the flow re-enters `CompatibilityAgent.rankCandidates()` from F03. See section 7.4.
+**F10 - Profile Update to Re-rank.** When `User.applyUpdate()` (F02) or `User.attachLifestyleProfile()` (F01) modifies the user's data, it calls `notifyObservers()`, which calls `RankingService.onProfileChanged(user)` on each registered `ProfileObserver` (registered earlier by `AgentController.startSession(user)` through `attach()`), and that calls `flagStale()` for that user's existing rankings. The profile classes only know they changed, not that ranking logic depends on it. If the user opts to re-rank, the flow re-enters `CompatibilityAgent.rankCandidates()` from F03. See section 7.4.
