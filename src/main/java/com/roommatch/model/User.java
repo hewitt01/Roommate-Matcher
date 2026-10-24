@@ -2,6 +2,8 @@ package com.roommatch.model;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -9,8 +11,9 @@ import java.util.Optional;
 /**
  * A person on the housing platform, either the requesting user or a candidate (F02).
  * Owns its own validation so an invalid User can never exist, and owns its Shortlist (F09).
+ * Acts as the Subject of the Observer pattern: observers are told after every successful change (F10).
  */
-public class User {
+public class User implements ProfileSubject {
     public static final String FIELD_BUDGET = "budget";
     public static final String FIELD_LOCATION = "location";
     public static final String FIELD_MOVE_IN_DATE = "moveInDate";
@@ -22,6 +25,7 @@ public class User {
     private boolean active = true;
     private LifestyleProfile lifestyleProfile;
     private final Shortlist shortlist = new Shortlist();
+    private final List<ProfileObserver> observers = new ArrayList<>();
 
     public User(String id, double budget, String location, LocalDate moveInDate) {
         this.id = requireNonBlank(id, "id");
@@ -54,15 +58,39 @@ public class User {
         if (newBudget != null) budget = newBudget;
         if (newLocation != null) location = newLocation.trim();
         if (newMoveIn != null) moveInDate = newMoveIn;
+        notifyObservers();
     }
 
     public void attachLifestyleProfile(LifestyleProfile profile) {
         this.lifestyleProfile = Objects.requireNonNull(profile, "profile");
+        notifyObservers();
     }
 
     /** Empty until elicitation (F01) has attached a profile. */
     public Optional<LifestyleProfile> getLifestyleProfile() {
         return Optional.ofNullable(lifestyleProfile);
+    }
+
+    /** Registers an observer. Attaching the same observer twice has no extra effect. */
+    @Override
+    public void attach(ProfileObserver observer) {
+        Objects.requireNonNull(observer, "observer");
+        if (!observers.contains(observer)) {
+            observers.add(observer);
+        }
+    }
+
+    @Override
+    public void detach(ProfileObserver observer) {
+        observers.remove(observer);
+    }
+
+    /** Iterates over a copy so an observer may detach itself while being notified. */
+    @Override
+    public void notifyObservers() {
+        for (ProfileObserver observer : new ArrayList<>(observers)) {
+            observer.onProfileChanged(this);
+        }
     }
 
     public Shortlist getShortlist() { return shortlist; }
