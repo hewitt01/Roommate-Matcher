@@ -1,0 +1,18 @@
+[
+  {"user_id": "p001", "city": "Toronto", "rent_max": 1100, "available_from": "2026-12-01", "status": "ACTIVE",
+   "habits": {"tidiness": "very tidy, cleans daily", "noise": "needs quiet after 10pm", "guests": "rarely has guests", "sleep": "early riser, bed by 10"}},
+  {"user_id": "p002", "city": "Toronto", "rent_max": 1500, "available_from": "2027-01-01", "status": "ACTIVE",
+   "habits": {"tidiness": "relaxed about mess", "noise": "fine with loud music", "guests": "hosts friends most weekends", "sleep": "night owl"}},
+  {"user_id": "p003", "city": "Vaughan", "rent_max": 1000, "available_from": "2026-12-15", "status": "ACTIVE",
+   "habits": {"tidiness": "tidy but not obsessive", "noise": "moderate"}},
+  {"user_id": "p004", "city": "Mississauga", "rent_max": 900, "available_from": "2026-11-20", "status": "ACTIVE",
+   "habits": {"tidiness": "average", "noise": "quiet", "guests": "occasional", "sleep": "regular 9-to-5 schedule"}},
+  {"user_id": "p005", "city": "Toronto", "rent_max": 1300, "available_from": "2026-12-10", "status": "DEACTIVATED",
+   "habits": {"tidiness": "tidy", "noise": "quiet", "guests": "rarely", "sleep": "early"}},
+  {"user_id": "p006", "city": "Toronto", "rent_max": 800, "available_from": "2026-11-30", "status": "ACTIVE",
+   "habits": {}},
+  {"user_id": "p007", "city": "Vaughan", "rent_max": 1250, "available_from": "2027-02-01", "status": "ACTIVE",
+   "habits": {"tidiness": "very tidy", "noise": "low tolerance", "guests": "none", "sleep": "early riser"}},
+  {"user_id": "p008", "city": "Toronto", "rent_max": 1000, "available_from": "2026-12-05", "status": "ACTIVE",
+   "habits": {"tidiness": "messy but friendly", "noise": "high tolerance", "guests": "often", "sleep": "very late"}}
+]
