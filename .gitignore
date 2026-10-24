@@ -1,0 +1,16 @@
+# Local secrets (never commit real keys)
+.env
+.env.*
+!.env.example
+config.local.json
+
+# Build output
+target/
+out/
+*.class
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
