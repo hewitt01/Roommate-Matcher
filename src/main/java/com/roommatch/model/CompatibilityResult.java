@@ -46,6 +46,15 @@ public class CompatibilityResult {
     public User getCandidate() { return candidate; }
     public double getScoreAtoB() { return scoreAtoB; }
     public double getScoreBtoA() { return scoreBtoA; }
+    /**
+     * The single number used to rank candidates: the LOWER of the two directional scores.
+     * A pair that is great for one person but bad for the other will not live well together,
+     * so it must not rank above a pair that is merely good for both.
+     */
+    public double overallScore() {
+        return Math.min(scoreAtoB, scoreBtoA);
+    }
+
     public String getRationale() { return rationale; }
     public List<String> getNotAssessedDimensions() { return notAssessedDimensions; }
     public Optional<String> getExplanation() { return Optional.ofNullable(explanation); }
