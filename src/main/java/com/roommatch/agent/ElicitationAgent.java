@@ -123,10 +123,13 @@ public class ElicitationAgent {
     /** Stores everything the model extracted and logs the exchange. Called only after a successful model call. */
     void remember(String question, String answer, Interpretation result) {
         history.add(new Exchange(question, answer));
-        result.dimensions().forEach((dimension, value) -> {
-            draft.set(dimension, value);
-            unresolved.remove(dimension);
-        });
+        for (String dimension : LifestyleProfile.DIMENSIONS) {   // fixed order keeps summaries stable
+            String value = result.dimensions().get(dimension);
+            if (value != null) {
+                draft.set(dimension, value);
+                unresolved.remove(dimension);
+            }
+        }
     }
 
     void markUnresolved(String dimension) {

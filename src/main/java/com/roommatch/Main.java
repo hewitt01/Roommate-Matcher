@@ -1,6 +1,7 @@
 package com.roommatch;
 
 import com.roommatch.agent.CompatibilityAgent;
+import com.roommatch.agent.ElicitationAgent;
 import com.roommatch.agent.LLMCompatibilityScorer;
 import com.roommatch.agent.ProfileAccessTool;
 import com.roommatch.agent.ToolManager;
@@ -20,7 +21,7 @@ public final class Main {
     private Main() { }
 
     public static void main(String[] args) {
-        int exitCode = new RoomMatchCLI(System.out, System.err, Main::buildServices).run(args);
+        int exitCode = new RoomMatchCLI(System.out, System.err, System.in, Main::buildServices).run(args);
         System.exit(exitCode);
     }
 
@@ -33,6 +34,7 @@ public final class Main {
         ToolManager tools = new ToolManager();
         tools.register(new ProfileAccessTool(repository));
         CompatibilityAgent agent = new CompatibilityAgent(tools, new LLMCompatibilityScorer(llm));
-        return new RoomMatchCLI.Services(new AgentController(agent, new RankingService()), repository);
+        AgentController controller = new AgentController(agent, new RankingService(), () -> new ElicitationAgent(llm));
+        return new RoomMatchCLI.Services(controller, repository);
     }
 }

@@ -5,18 +5,17 @@ import com.roommatch.agent.RankingOutcome;
 import com.roommatch.config.ConfigException;
 import com.roommatch.controller.AgentController;
 import com.roommatch.llm.LLMException;
-import com.roommatch.model.CompatibilityResult;
 import com.roommatch.model.HardFilters;
 import com.roommatch.model.InvalidProfileException;
 import com.roommatch.model.User;
 import com.roommatch.platform.PlatformException;
 import com.roommatch.repository.CandidateRepository;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
-import java.time.LocalDate;
-import java.time.format.DateTimeParseException;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -33,32 +32,19 @@ public class RoomMatchCLI {
         Services create();
     }
 
-    private static final class UsageException extends RuntimeException {
-        private static final long serialVersionUID = 1L;
-
-        UsageException(String message) {
-            super(message);
-        }
-    }
-
-    private static final class MatchOptions {
-        String asUser;
-        String city;
-        Double minBudget;
-        Double maxBudget;
-        LocalDate from;
-        LocalDate to;
-        Integer top;
-        boolean rationale;
-    }
-
     private final PrintStream out;
     private final PrintStream err;
+    private final InputStream in;
     private final ServiceFactory factory;
 
     public RoomMatchCLI(PrintStream out, PrintStream err, ServiceFactory factory) {
+        this(out, err, System.in, factory);
+    }
+
+    public RoomMatchCLI(PrintStream out, PrintStream err, InputStream in, ServiceFactory factory) {
         this.out = out;
         this.err = err;
+        this.in = in;
         this.factory = factory;
     }
 
@@ -74,6 +60,8 @@ public class RoomMatchCLI {
                 return 0;
             case "match":
                 return match(Arrays.copyOfRange(args, 1, args.length));
+            case "shell":
+                return shell();
             default:
                 err.println("Unknown command: " + args[0]);
                 err.println(usage());
@@ -81,12 +69,23 @@ public class RoomMatchCLI {
         }
     }
 
+    private int shell() {
+        try {
+            Services services = factory.create();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+            return new InteractiveShell(reader, out, err, services).run();
+        } catch (ConfigException | PlatformException e) {
+            err.println("Setup problem: " + e.getMessage());
+            return 1;
+        }
+    }
+
     private int match(String[] args) {
         MatchOptions options;
         HardFilters filters;
         try {
-            options = parseMatchOptions(args);
-            filters = buildFilters(options);
+            options = MatchOptions.parse(args, true);
+            filters = options.toFilters();
         } catch (UsageException | InvalidProfileException e) {
             err.println("Error: " + e.getMessage());
             err.println("Run 'help' to see the options.");
@@ -108,13 +107,14 @@ public class RoomMatchCLI {
             services.controller().startSession(requester);
             try {
                 RankingOutcome outcome = services.controller().getRankedMatches(requester, filters);
-                print(requester, outcome, options);
+                MatchPrinter.print(out, requester, outcome, options);
             } finally {
                 services.controller().endSession(requester);
             }
             return 0;
         } catch (ProfileIncompleteException e) {
-            err.println(e.getMessage() + " Ranking needs a complete profile.");
+            err.println(e.getMessage() + " Ranking needs a complete profile. "
+                    + "Use the interactive mode ('shell', then 'login' and 'elicit') to complete it.");
             return 1;
         } catch (ConfigException | PlatformException e) {
             err.println("Setup problem: " + e.getMessage());
@@ -125,120 +125,13 @@ public class RoomMatchCLI {
         }
     }
 
-    private void print(User requester, RankingOutcome outcome, MatchOptions options) {
-        if (outcome.isEmptyPool()) {
-            out.println("No candidates match your filters. Try relaxing the city, budget or move-in dates.");
-            return;
-        }
-        List<CompatibilityResult> shown = outcome.ranked();
-        if (options.top != null && options.top < shown.size()) {
-            shown = shown.subList(0, options.top);
-        }
-        out.printf(Locale.ROOT, "Matches for %s (%s, budget %.0f): %d ranked, %d skipped%n%n",
-                requester.getId(), requester.getLocation(), requester.getBudget(),
-                outcome.ranked().size(), outcome.skipped().size());
-        if (!shown.isEmpty()) {
-            out.printf(Locale.ROOT, "%-3s %-10s %-12s %6s %10s %10s %8s%n",
-                    "#", "Candidate", "City", "Rent", "You->Them", "Them->You", "Overall");
-            int rank = 1;
-            for (CompatibilityResult r : shown) {
-                User c = r.getCandidate();
-                out.printf(Locale.ROOT, "%-3d %-10s %-12s %6.0f %10.1f %10.1f %8.1f%n",
-                        rank++, c.getId(), c.getLocation(), c.getBudget(),
-                        r.getScoreAtoB(), r.getScoreBtoA(), r.overallScore());
-                if (options.rationale && !r.getRationale().isBlank()) {
-                    out.println("    " + r.getRationale());
-                }
-                if (!r.getNotAssessedDimensions().isEmpty()) {
-                    out.println("    not assessed (missing data): " + String.join(", ", r.getNotAssessedDimensions()));
-                }
-            }
-            if (shown.size() < outcome.ranked().size()) {
-                out.println("\nShowing the top " + shown.size() + " of " + outcome.ranked().size() + ".");
-            }
-        }
-        if (!outcome.skipped().isEmpty()) {
-            out.println("\nSkipped:");
-            for (RankingOutcome.Skipped s : outcome.skipped()) {
-                out.println("  " + s.candidate().getId() + " - " + s.reason());
-            }
-        }
-    }
-
-    private static MatchOptions parseMatchOptions(String[] args) {
-        MatchOptions o = new MatchOptions();
-        for (int i = 0; i < args.length; i++) {
-            String flag = args[i];
-            if (flag.equals("--rationale")) {
-                o.rationale = true;
-                continue;
-            }
-            if (!List.of("--as", "--city", "--min-budget", "--max-budget", "--from", "--to", "--top").contains(flag)) {
-                throw new UsageException("Unknown option: " + flag);
-            }
-            if (i + 1 >= args.length) {
-                throw new UsageException("Option " + flag + " needs a value.");
-            }
-            String value = args[++i];
-            switch (flag) {
-                case "--as" -> o.asUser = value;
-                case "--city" -> o.city = value;
-                case "--min-budget" -> o.minBudget = parseNumber(flag, value);
-                case "--max-budget" -> o.maxBudget = parseNumber(flag, value);
-                case "--from" -> o.from = parseDate(flag, value);
-                case "--to" -> o.to = parseDate(flag, value);
-                case "--top" -> {
-                    double n = parseNumber(flag, value);
-                    if (n < 1 || n != Math.floor(n)) {
-                        throw new UsageException("--top must be a whole number of at least 1.");
-                    }
-                    o.top = (int) n;
-                }
-                default -> throw new UsageException("Unknown option: " + flag);
-            }
-        }
-        if (o.asUser == null || o.asUser.isBlank()) {
-            throw new UsageException("Missing --as <userId> (which platform user are you?).");
-        }
-        return o;
-    }
-
-    private static HardFilters buildFilters(MatchOptions o) {
-        HardFilters f = HardFilters.none();
-        if (o.city != null) {
-            f = f.withCity(o.city);
-        }
-        if (o.minBudget != null || o.maxBudget != null) {
-            f = f.withBudgetRange(o.minBudget, o.maxBudget);
-        }
-        if (o.from != null || o.to != null) {
-            f = f.withMoveInWindow(o.from, o.to);
-        }
-        return f;
-    }
-
-    private static double parseNumber(String flag, String value) {
-        try {
-            return Double.parseDouble(value);
-        } catch (NumberFormatException e) {
-            throw new UsageException(flag + " needs a number, got '" + value + "'.");
-        }
-    }
-
-    private static LocalDate parseDate(String flag, String value) {
-        try {
-            return LocalDate.parse(value);
-        } catch (DateTimeParseException e) {
-            throw new UsageException(flag + " needs a date like 2026-12-01, got '" + value + "'.");
-        }
-    }
-
     static String usage() {
         return String.join(System.lineSeparator(),
                 "RoomMatch AI - command line",
                 "",
                 "Commands:",
-                "  match --as <userId> [options]   Rank compatible roommates for a platform user",
+                "  shell                           Interactive mode: log in, build your profile, match, edit",
+                "  match --as <userId> [options]   One-shot: rank compatible roommates for a platform user",
                 "  help                            Show this message",
                 "",
                 "Options for match:",
@@ -251,7 +144,8 @@ public class RoomMatchCLI {
                 "  --top <n>            Show only the best n matches",
                 "  --rationale          Show the AI's reasoning under each match",
                 "",
-                "Example:",
-                "  match --as p001 --city Toronto --top 3 --rationale");
+                "Examples:",
+                "  match --as p001 --city Toronto --top 3 --rationale",
+                "  shell");
     }
 }

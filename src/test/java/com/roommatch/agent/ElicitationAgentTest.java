@@ -179,6 +179,16 @@ class ElicitationAgentTest {
     }
 
     @Test
+    void summariesListDimensionsInTheCanonicalOrderWhateverOrderTheModelUsed() {
+        Script llm = new Script(clear("sleepSchedule", "early", "guestFrequency", "rarely",
+                "noiseTolerance", "quiet", "cleanliness", "tidy"));
+        ElicitationAgent agent = new ElicitationAgent(llm);
+        agent.start();
+        agent.handleResponse("everything");
+        assertEquals(LifestyleProfile.DIMENSIONS, List.copyOf(agent.getDraftAnswers().keySet()));
+    }
+
+    @Test
     void personCanCorrectOrFillInAValueThemselves() {
         Script llm = new Script(vague("a?"), vague("b?"), vague("c"),
                 clear("noiseTolerance", "quiet"), clear("guestFrequency", "rarely"), clear("sleepSchedule", "early"));
