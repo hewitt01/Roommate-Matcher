@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.roommatch.agent.CompatibilityAgent;
 import com.roommatch.agent.ElicitationAgent;
 import com.roommatch.agent.ExplanationGenerator;
+import com.roommatch.agent.FrictionMapGenerator;
 import com.roommatch.agent.LLMCompatibilityScorer;
 import com.roommatch.agent.ProfileAccessTool;
 import com.roommatch.agent.ToolManager;
@@ -41,6 +42,8 @@ class InteractiveShellTest {
     private final AtomicInteger scoringCalls = new AtomicInteger();
     private final AtomicInteger explanationCalls = new AtomicInteger();
     private boolean explanationsFail;
+    private final AtomicInteger frictionCalls = new AtomicInteger();
+    private boolean frictionFails;
 
     private String out() { return outBytes.toString(StandardCharsets.UTF_8); }
     private String err() { return errBytes.toString(StandardCharsets.UTF_8); }
@@ -55,6 +58,14 @@ class InteractiveShellTest {
 
     private LLMClient fakeModel() {
         return prompt -> {
+            if (prompt.contains("\"frictionPoints\"")) {
+                if (frictionFails) {
+                    throw new LLMException("service down");
+                }
+                int n = frictionCalls.incrementAndGet();
+                return "{\"frictionPoints\": [\"Friction point " + n + " about tidiness.\", \"Second point about noise levels in the evening.\"],"
+                        + " \"suggestedRules\": [\"Rule " + n + ": quiet hours after ten.\"]}";
+            }
             if (prompt.contains("Reply with the explanation text only.")) {
                 if (explanationsFail) {
                     throw new LLMException("service down");
@@ -87,7 +98,8 @@ class InteractiveShellTest {
             tools.register(new ProfileAccessTool(repo));
             CompatibilityAgent agent = new CompatibilityAgent(tools, new LLMCompatibilityScorer(llm));
             AgentController controller = new AgentController(
-                    agent, new RankingService(), () -> new ElicitationAgent(llm), new ExplanationGenerator(llm));
+                    agent, new RankingService(), () -> new ElicitationAgent(llm),
+                    new ExplanationGenerator(llm), new FrictionMapGenerator(llm));
             return new RoomMatchCLI.Services(controller, repo);
         };
     }
@@ -127,8 +139,8 @@ class InteractiveShellTest {
 
     @Test
     void commandsThatNeedAUserSayToLogInFirst() {
-        shell("whoami", "match", "elicit", "edit budget=1", "results", "explain 1", "quit");
-        assertEquals(6, count(err(), "Log in first"));
+        shell("whoami", "match", "elicit", "edit budget=1", "results", "explain 1", "friction 1", "quit");
+        assertEquals(7, count(err(), "Log in first"));
     }
 
     @Test
@@ -371,5 +383,70 @@ class InteractiveShellTest {
         shell("login p001", "match", "explain 1", "quit");
         assertTrue(err().contains("The AI service failed"));
         assertFalse(out().contains("Why p002 matched:"));
+    }
+
+    // ---------------------------------------------------------- F06 friction
+
+    @Test
+    void frictionPrintsNumberedPointsAndRulesForAMatch() {
+        shell("login p001", "match", "friction 1", "quit");
+        String o = out();
+        assertTrue(o.contains("Friction map for p002:"));
+        assertTrue(o.contains("Likely friction points:") && o.contains("House rules to discuss:"));
+        assertTrue(o.contains("  1. Friction point 1 about tidiness."));
+        assertTrue(o.contains("  2. Second point about noise levels in the evening."));
+        assertTrue(o.contains("  1. Rule 1: quiet hours after ten."));
+        assertTrue(o.contains("You->Them") && o.contains("Overall"));
+        assertEquals(5, scoringCalls.get(), "no re-scoring for a fresh result");
+        assertEquals(1, frictionCalls.get());
+    }
+
+    @Test
+    void frictionAlsoWorksByCandidateIdAndPartialMapsSaySo() {
+        shell("login p001", "match", "friction p003", "quit");
+        assertTrue(out().contains("Friction map for p003:"));
+        assertTrue(out().contains("Partial map. Not assessed (missing data): guestFrequency, sleepSchedule"));
+    }
+
+    @Test
+    void revisitingAMapCostsNoModelCall() {
+        shell("login p001", "match", "friction 1", "friction 1", "quit");
+        assertEquals(2, count(out(), "Friction map for p002:"));
+        assertEquals(2, count(out(), "Friction point 1 about tidiness."));
+        assertEquals(1, frictionCalls.get());
+    }
+
+    @Test
+    void frictionBeforeRankingAndBadReferencesAreExplained() {
+        shell("login p001", "friction 1", "match", "friction 99", "friction p999", "friction", "quit");
+        assertTrue(out().contains("No results yet. Type 'match' first."));
+        assertTrue(err().contains("There is no match number 99"));
+        assertTrue(err().contains("'p999' is not in your last ranking."));
+        assertTrue(err().contains("Usage: friction"));
+        assertEquals(0, frictionCalls.get());
+    }
+
+    @Test
+    void afterAProfileEditFrictionRescoresFirstAndBuildsANewMap() {
+        shell("login p001", "match", "friction 1", "edit budget=1500", "n", "friction 1", "quit");
+        assertTrue(out().contains("re-scored first"));
+        assertEquals(6, scoringCalls.get());
+        assertEquals(2, frictionCalls.get());
+        assertTrue(out().contains("Friction point 2 about tidiness."));
+    }
+
+    @Test
+    void explainAndFrictionAfterAnEditShareASingleRescore() {
+        shell("login p001", "match", "edit budget=1500", "n", "explain 1", "friction 1", "quit");
+        assertEquals(6, scoringCalls.get(), "five for the ranking, one shared re-score");
+        assertEquals(1, count(out(), "re-scored first"));
+    }
+
+    @Test
+    void aModelFailureWhileBuildingTheMapIsReportedAndNothingIsCached() {
+        frictionFails = true;
+        shell("login p001", "match", "friction 1", "quit");
+        assertTrue(err().contains("The AI service failed"));
+        assertFalse(out().contains("Friction map for"));
     }
 }

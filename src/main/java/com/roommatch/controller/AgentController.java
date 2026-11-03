@@ -3,9 +3,12 @@ package com.roommatch.controller;
 import com.roommatch.agent.CompatibilityAgent;
 import com.roommatch.agent.ElicitationAgent;
 import com.roommatch.agent.ExplanationGenerator;
+import com.roommatch.agent.FrictionMapGenerator;
+import com.roommatch.agent.FrictionMapView;
 import com.roommatch.agent.MatchExplanation;
 import com.roommatch.agent.RankingOutcome;
 import com.roommatch.model.CompatibilityResult;
+import com.roommatch.model.FrictionMap;
 import com.roommatch.model.HardFilters;
 import com.roommatch.model.LifestyleProfile;
 import com.roommatch.model.User;
@@ -28,6 +31,7 @@ public class AgentController {
     private final Supplier<ElicitationAgent> elicitationFactory;
     private final Map<String, ElicitationAgent> elicitations = new HashMap<>();
     private final ExplanationGenerator explanationGenerator;   // null when explanations are not configured
+    private final FrictionMapGenerator frictionMapGenerator;   // null when friction maps are not configured
 
     /** Without elicitation support: elicitation calls fail with IllegalStateException. */
     public AgentController(CompatibilityAgent agent, RankingService rankingService) {
@@ -44,10 +48,18 @@ public class AgentController {
     public AgentController(CompatibilityAgent agent, RankingService rankingService,
                            Supplier<ElicitationAgent> elicitationFactory,
                            ExplanationGenerator explanationGenerator) {
+        this(agent, rankingService, elicitationFactory, explanationGenerator, null);
+    }
+
+    public AgentController(CompatibilityAgent agent, RankingService rankingService,
+                           Supplier<ElicitationAgent> elicitationFactory,
+                           ExplanationGenerator explanationGenerator,
+                           FrictionMapGenerator frictionMapGenerator) {
         this.agent = Objects.requireNonNull(agent, "agent");
         this.rankingService = Objects.requireNonNull(rankingService, "rankingService");
         this.elicitationFactory = Objects.requireNonNull(elicitationFactory, "elicitationFactory");
         this.explanationGenerator = explanationGenerator;
+        this.frictionMapGenerator = frictionMapGenerator;
     }
 
     /** Registers the ranking service as an observer so profile edits can mark results outdated (F10). */
@@ -87,6 +99,24 @@ public class AgentController {
             result.attachExplanation(explanationGenerator.generate(user, result));
         }
         return new MatchExplanation(result, result.getExplanation().orElseThrow(), fresh.isEmpty());
+    }
+
+    /**
+     * F06. The friction map for this pair: likely points of conflict plus house rules to discuss.
+     * Uses the same freshness rule as explanations (outdated results are re-scored first), and a
+     * finished map is kept on the result so revisiting it costs nothing.
+     */
+    public FrictionMapView getFrictionMap(User user, User candidate) {
+        if (frictionMapGenerator == null) {
+            throw new IllegalStateException("Friction maps are not configured.");
+        }
+        Optional<CompatibilityResult> fresh = agent.getFreshResult(user, candidate);
+        CompatibilityResult result = fresh.orElseGet(() -> agent.rescore(user, candidate));
+        if (result.getFrictionMap().isEmpty()) {
+            FrictionMap map = frictionMapGenerator.generate(user, result);
+            result.attachFrictionMap(map);
+        }
+        return new FrictionMapView(result, result.getFrictionMap().orElseThrow(), fresh.isEmpty());
     }
 
     // ---- F01: profile elicitation. One conversation per user; a new one replaces any unfinished one. ----

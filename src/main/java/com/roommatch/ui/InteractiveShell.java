@@ -2,6 +2,8 @@ package com.roommatch.ui;
 
 import com.roommatch.agent.ElicitationException;
 import com.roommatch.agent.ExplanationException;
+import com.roommatch.agent.FrictionMapException;
+import com.roommatch.agent.FrictionMapView;
 import com.roommatch.agent.MatchExplanation;
 import com.roommatch.agent.ProfileIncompleteException;
 import com.roommatch.agent.RankingOutcome;
@@ -9,6 +11,7 @@ import com.roommatch.agent.ScoringException;
 import com.roommatch.controller.AgentController;
 import com.roommatch.llm.LLMException;
 import com.roommatch.model.CompatibilityResult;
+import com.roommatch.model.FrictionMap;
 import com.roommatch.model.InvalidProfileException;
 import com.roommatch.model.LifestyleProfile;
 import com.roommatch.model.User;
@@ -74,8 +77,8 @@ final class InteractiveShell {
                     err.println(e.getMessage() + " Type 'elicit' to complete it.");
                 } catch (ElicitationException e) {
                     err.println(e.getMessage());
-                } catch (ScoringException | ExplanationException e) {
-                    err.println("Could not explain this match: " + e.getMessage());
+                } catch (ScoringException | ExplanationException | FrictionMapException e) {
+                    err.println("Could not complete that for this match: " + e.getMessage());
                 } catch (LLMException e) {
                     err.println("The AI service failed: " + e.getMessage() + " Nothing was lost, you can try again.");
                 }
@@ -105,6 +108,7 @@ final class InteractiveShell {
             case "match" -> match(Arrays.copyOfRange(parts, 1, parts.length));
             case "results" -> results();
             case "explain" -> explain(parts);
+            case "friction" -> friction(parts);
             default -> err.println("Unknown command: " + parts[0] + ". Type 'help'.");
         }
         return true;
@@ -203,6 +207,46 @@ final class InteractiveShell {
         out.println(TextWrap.wrap(explanation.text(), 78, "  "));
         if (!r.getNotAssessedDimensions().isEmpty()) {
             out.println("  Not compared (missing data): " + String.join(", ", r.getNotAssessedDimensions()));
+        }
+    }
+
+    /** F06: likely friction points and house rules to discuss, for a match from the last ranking. */
+    private void friction(String[] parts) {
+        requireUser();
+        if (parts.length != 2) {
+            throw new UsageException("Usage: friction <rank number or candidate id>");
+        }
+        if (lastOutcome == null) {
+            out.println("No results yet. Type 'match' first.");
+            return;
+        }
+        CompatibilityResult chosen = pick(parts[1]);
+        FrictionMapView view = controller.getFrictionMap(user, chosen.getCandidate());
+        CompatibilityResult r = view.result();
+        FrictionMap map = view.map();
+        out.println("Friction map for " + r.getCandidate().getId() + ":");
+        if (view.rescored()) {
+            out.println("  (Your profile changed after that ranking, so this match was re-scored first.)");
+        }
+        out.printf(Locale.ROOT, "  You->Them %.1f | Them->You %.1f | Overall %.1f%n",
+                r.getScoreAtoB(), r.getScoreBtoA(), r.overallScore());
+        out.println("\nLikely friction points:");
+        printItems(map.getFrictionPoints(), "  (none found for the compared habits)");
+        out.println("\nHouse rules to discuss:");
+        printItems(map.getSuggestedRules(), "  (none suggested)");
+        if (!map.getNotAssessedDimensions().isEmpty()) {
+            out.println("\nPartial map. Not assessed (missing data): " + String.join(", ", map.getNotAssessedDimensions()));
+        }
+    }
+
+    private void printItems(java.util.List<String> items, String whenEmpty) {
+        if (items.isEmpty()) {
+            out.println(whenEmpty);
+            return;
+        }
+        int n = 1;
+        for (String item : items) {
+            out.println(TextWrap.wrapItem(item, 78, "  " + n++ + ". ", "     "));
         }
     }
 
@@ -350,6 +394,7 @@ final class InteractiveShell {
                 "                            --from, --to, --top, --rationale)",
                 "  results                   Show your last ranking (marked if it is out of date)",
                 "  explain <n or id>         Why a match from your last ranking scored as it did",
+                "  friction <n or id>        Likely friction points and house rules for that match",
                 "  help                      Show this message",
                 "  quit                      Leave");
     }

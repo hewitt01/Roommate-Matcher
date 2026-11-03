@@ -7,6 +7,12 @@ import java.util.List;
 final class TextWrap {
     private TextWrap() { }
 
+    /** Wraps one list item: the first line starts with firstPrefix, later lines with restPrefix. */
+    static String wrapItem(String text, int width, String firstPrefix, String restPrefix) {
+        String wrapped = wrap(text, width, restPrefix);
+        return firstPrefix + wrapped.substring(Math.min(restPrefix.length(), wrapped.length()));
+    }
+
     static String wrap(String text, int width, String indent) {
         int room = Math.max(10, width - indent.length());
         List<String> lines = new ArrayList<>();

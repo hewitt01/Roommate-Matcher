@@ -32,4 +32,18 @@ class TextWrapTest {
         String longWord = "x".repeat(50);
         assertTrue(TextWrap.wrap("a " + longWord + " b", 20, "").contains(longWord));
     }
+
+    @Test
+    void listItemsGetAHangingIndent() {
+        String item = TextWrap.wrapItem("alpha beta gamma delta epsilon zeta eta theta", 24, "  1. ", "     ");
+        String[] lines = item.split("\\R");
+        assertTrue(lines.length > 1);
+        assertTrue(lines[0].startsWith("  1. alpha"));
+        for (int i = 1; i < lines.length; i++) {
+            assertTrue(lines[i].startsWith("     ") && !lines[i].startsWith("  1."));
+        }
+        for (String line : lines) {
+            assertTrue(line.length() <= 24, "too long: '" + line + "'");
+        }
+    }
 }

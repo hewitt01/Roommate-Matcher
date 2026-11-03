@@ -23,6 +23,7 @@ public class CompatibilityResult {
     private final List<String> notAssessedDimensions;
     private String explanation;
     private int scoredAtRevision = -1;
+    private FrictionMap frictionMap;
 
     public CompatibilityResult(User candidate, double scoreAtoB, double scoreBtoA) {
         this(candidate, scoreAtoB, scoreBtoA, "", List.of());
@@ -62,6 +63,13 @@ public class CompatibilityResult {
     /** Records which version of the requester's data this result was computed from. */
     public void stampRevision(int requesterRevision) {
         this.scoredAtRevision = requesterRevision;
+    }
+
+    /** The friction map generated for this pair, if any. A new result (after re-scoring) starts without one. */
+    public Optional<FrictionMap> getFrictionMap() { return Optional.ofNullable(frictionMap); }
+
+    public void attachFrictionMap(FrictionMap map) {
+        this.frictionMap = Objects.requireNonNull(map, "map");
     }
 
     public String getRationale() { return rationale; }
