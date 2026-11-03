@@ -43,7 +43,9 @@ public class CompatibilityAgent {
         List<RankingOutcome.Skipped> skipped = new ArrayList<>();
         for (User candidate : pool) {
             try {
-                scored.add(scorer.score(requester, candidate));
+                CompatibilityResult result = scorer.score(requester, candidate);
+                result.stampRevision(requester.getRevision());
+                scored.add(result);
             } catch (InsufficientDataException e) {
                 skipped.add(new RankingOutcome.Skipped(candidate, e.getMessage()));
             } catch (ScoringException e) {
@@ -63,6 +65,27 @@ public class CompatibilityAgent {
     public Optional<CompatibilityResult> getResult(User requester, User candidate) {
         return Optional.ofNullable(resultsByRequester.getOrDefault(requester.getId(), Map.of())
                 .get(candidate.getId()));
+    }
+
+    /**
+     * The stored result for this pair, but only if the requester has not changed since it was
+     * computed. An outdated result is never returned, so nobody explains or acts on old numbers.
+     */
+    public Optional<CompatibilityResult> getFreshResult(User requester, User candidate) {
+        return getResult(requester, candidate)
+                .filter(r -> r.getScoredAtRevision() == requester.getRevision());
+    }
+
+    /** Scores one pair again from the current profiles and stores it, replacing any older result. */
+    public CompatibilityResult rescore(User requester, User candidate) {
+        Objects.requireNonNull(requester, "requester");
+        Objects.requireNonNull(candidate, "candidate");
+        requireReadyRequester(requester);
+        CompatibilityResult result = scorer.score(requester, candidate);
+        result.stampRevision(requester.getRevision());
+        resultsByRequester.computeIfAbsent(requester.getId(), id -> new HashMap<>())
+                .put(candidate.getId(), result);
+        return result;
     }
 
     private static void requireReadyRequester(User requester) {

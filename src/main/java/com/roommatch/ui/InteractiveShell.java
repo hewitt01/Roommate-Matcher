@@ -1,10 +1,14 @@
 package com.roommatch.ui;
 
 import com.roommatch.agent.ElicitationException;
+import com.roommatch.agent.ExplanationException;
+import com.roommatch.agent.MatchExplanation;
 import com.roommatch.agent.ProfileIncompleteException;
 import com.roommatch.agent.RankingOutcome;
+import com.roommatch.agent.ScoringException;
 import com.roommatch.controller.AgentController;
 import com.roommatch.llm.LLMException;
+import com.roommatch.model.CompatibilityResult;
 import com.roommatch.model.InvalidProfileException;
 import com.roommatch.model.LifestyleProfile;
 import com.roommatch.model.User;
@@ -70,6 +74,8 @@ final class InteractiveShell {
                     err.println(e.getMessage() + " Type 'elicit' to complete it.");
                 } catch (ElicitationException e) {
                     err.println(e.getMessage());
+                } catch (ScoringException | ExplanationException e) {
+                    err.println("Could not explain this match: " + e.getMessage());
                 } catch (LLMException e) {
                     err.println("The AI service failed: " + e.getMessage() + " Nothing was lost, you can try again.");
                 }
@@ -98,6 +104,7 @@ final class InteractiveShell {
             case "elicit" -> elicit();
             case "match" -> match(Arrays.copyOfRange(parts, 1, parts.length));
             case "results" -> results();
+            case "explain" -> explain(parts);
             default -> err.println("Unknown command: " + parts[0] + ". Type 'help'.");
         }
         return true;
@@ -172,6 +179,46 @@ final class InteractiveShell {
                     + "profile changes. Type 'match' to refresh them.");
         }
         MatchPrinter.print(out, user, lastOutcome, lastOptions);
+    }
+
+    /** F05: "Why this match?" for a candidate from the last ranking, picked by rank number or id. */
+    private void explain(String[] parts) {
+        requireUser();
+        if (parts.length != 2) {
+            throw new UsageException("Usage: explain <rank number or candidate id>");
+        }
+        if (lastOutcome == null) {
+            out.println("No results yet. Type 'match' first.");
+            return;
+        }
+        CompatibilityResult chosen = pick(parts[1]);
+        MatchExplanation explanation = controller.getExplanation(user, chosen.getCandidate());
+        CompatibilityResult r = explanation.result();
+        out.println("Why " + r.getCandidate().getId() + " matched:");
+        if (explanation.rescored()) {
+            out.println("  (Your profile changed after that ranking, so this match was re-scored first.)");
+        }
+        out.printf(Locale.ROOT, "  You->Them %.1f | Them->You %.1f | Overall %.1f%n",
+                r.getScoreAtoB(), r.getScoreBtoA(), r.overallScore());
+        out.println(TextWrap.wrap(explanation.text(), 78, "  "));
+        if (!r.getNotAssessedDimensions().isEmpty()) {
+            out.println("  Not compared (missing data): " + String.join(", ", r.getNotAssessedDimensions()));
+        }
+    }
+
+    private CompatibilityResult pick(String reference) {
+        var ranked = lastOutcome.ranked();
+        try {
+            int number = Integer.parseInt(reference);
+            if (number < 1 || number > ranked.size()) {
+                throw new UsageException("There is no match number " + number
+                        + " (your last ranking has " + ranked.size() + ").");
+            }
+            return ranked.get(number - 1);
+        } catch (NumberFormatException e) {
+            return ranked.stream().filter(r -> r.getCandidate().getId().equals(reference)).findFirst()
+                    .orElseThrow(() -> new UsageException("'" + reference + "' is not in your last ranking."));
+        }
     }
 
     /** F10: after any change to the profile, offer to re-rank if earlier results are now outdated. */
@@ -302,6 +349,7 @@ final class InteractiveShell {
                 "  match [options]           Rank compatible roommates (--city, --min-budget, --max-budget,",
                 "                            --from, --to, --top, --rationale)",
                 "  results                   Show your last ranking (marked if it is out of date)",
+                "  explain <n or id>         Why a match from your last ranking scored as it did",
                 "  help                      Show this message",
                 "  quit                      Leave");
     }

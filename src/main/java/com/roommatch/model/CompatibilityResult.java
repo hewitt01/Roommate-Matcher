@@ -22,6 +22,7 @@ public class CompatibilityResult {
     private final String rationale;
     private final List<String> notAssessedDimensions;
     private String explanation;
+    private int scoredAtRevision = -1;
 
     public CompatibilityResult(User candidate, double scoreAtoB, double scoreBtoA) {
         this(candidate, scoreAtoB, scoreBtoA, "", List.of());
@@ -53,6 +54,14 @@ public class CompatibilityResult {
      */
     public double overallScore() {
         return Math.min(scoreAtoB, scoreBtoA);
+    }
+
+    /** The requester's User.getRevision() when this was scored; -1 if never stamped. */
+    public int getScoredAtRevision() { return scoredAtRevision; }
+
+    /** Records which version of the requester's data this result was computed from. */
+    public void stampRevision(int requesterRevision) {
+        this.scoredAtRevision = requesterRevision;
     }
 
     public String getRationale() { return rationale; }

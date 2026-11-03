@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.roommatch.agent.CompatibilityAgent;
 import com.roommatch.agent.ElicitationAgent;
+import com.roommatch.agent.ExplanationGenerator;
 import com.roommatch.agent.LLMCompatibilityScorer;
 import com.roommatch.agent.ProfileAccessTool;
 import com.roommatch.agent.ToolManager;
@@ -38,6 +39,8 @@ class InteractiveShellTest {
     private final ByteArrayOutputStream errBytes = new ByteArrayOutputStream();
     private final Deque<String> elicitationReplies = new ArrayDeque<>();
     private final AtomicInteger scoringCalls = new AtomicInteger();
+    private final AtomicInteger explanationCalls = new AtomicInteger();
+    private boolean explanationsFail;
 
     private String out() { return outBytes.toString(StandardCharsets.UTF_8); }
     private String err() { return errBytes.toString(StandardCharsets.UTF_8); }
@@ -52,6 +55,13 @@ class InteractiveShellTest {
 
     private LLMClient fakeModel() {
         return prompt -> {
+            if (prompt.contains("Reply with the explanation text only.")) {
+                if (explanationsFail) {
+                    throw new LLMException("service down");
+                }
+                int n = explanationCalls.incrementAndGet();
+                return "Explanation number " + n + ". They keep a messier home than you do, which affects you more than them.";
+            }
             if (prompt.contains("<answer>")) {
                 String next = elicitationReplies.poll();
                 if (next == null) {
@@ -76,7 +86,8 @@ class InteractiveShellTest {
             ToolManager tools = new ToolManager();
             tools.register(new ProfileAccessTool(repo));
             CompatibilityAgent agent = new CompatibilityAgent(tools, new LLMCompatibilityScorer(llm));
-            AgentController controller = new AgentController(agent, new RankingService(), () -> new ElicitationAgent(llm));
+            AgentController controller = new AgentController(
+                    agent, new RankingService(), () -> new ElicitationAgent(llm), new ExplanationGenerator(llm));
             return new RoomMatchCLI.Services(controller, repo);
         };
     }
@@ -116,8 +127,8 @@ class InteractiveShellTest {
 
     @Test
     void commandsThatNeedAUserSayToLogInFirst() {
-        shell("whoami", "match", "elicit", "edit budget=1", "results", "quit");
-        assertEquals(5, count(err(), "Log in first"));
+        shell("whoami", "match", "elicit", "edit budget=1", "results", "explain 1", "quit");
+        assertEquals(6, count(err(), "Log in first"));
     }
 
     @Test
@@ -299,5 +310,66 @@ class InteractiveShellTest {
         shell("login p001", "match", "elicit", "my answers", "/confirm", "n", "results", "quit");
         assertTrue(out().contains("Re-run matching now? [y/n]"));
         assertTrue(out().contains("WARNING: these results are OUT OF DATE"));
+    }
+
+    // ----------------------------------------------------------- F05 explain
+
+    @Test
+    void explainWorksByRankNumberAndByCandidateId() {
+        shell("login p001", "match", "explain 1", "explain p003", "quit");
+        assertTrue(out().contains("Why p002 matched:"), "rank 1 is p002 with the fake scores");
+        assertTrue(out().contains("Why p003 matched:"));
+        assertTrue(out().contains("Explanation number 1.") && out().contains("Explanation number 2."));
+        assertTrue(out().contains("You->Them") && out().contains("Overall"));
+        assertEquals(5, scoringCalls.get(), "fresh results are explained without re-scoring");
+        assertEquals(2, explanationCalls.get());
+    }
+
+    @Test
+    void askingForTheSameExplanationAgainCostsNoModelCall() {
+        shell("login p001", "match", "explain 1", "explain 1", "quit");
+        assertEquals(2, count(out(), "Why p002 matched:"));
+        assertEquals(2, count(out(), "Explanation number 1."));
+        assertEquals(1, explanationCalls.get());
+    }
+
+    @Test
+    void explainShowsWhichDimensionsWereNotCompared() {
+        shell("login p001", "match", "explain p003", "quit");
+        assertTrue(out().contains("Not compared (missing data): guestFrequency, sleepSchedule"));
+    }
+
+    @Test
+    void explainBeforeAnyRankingTellsYouToMatchFirst() {
+        shell("login p001", "explain 1", "quit");
+        assertTrue(out().contains("No results yet. Type 'match' first."));
+        assertEquals(0, explanationCalls.get());
+    }
+
+    @Test
+    void explainRejectsBadReferences() {
+        shell("login p001", "match", "explain 99", "explain 0", "explain p999", "explain p006", "explain", "quit");
+        assertTrue(err().contains("There is no match number 99 (your last ranking has 5)."));
+        assertTrue(err().contains("There is no match number 0"));
+        assertTrue(err().contains("'p999' is not in your last ranking."));
+        assertTrue(err().contains("'p006' is not in your last ranking."), "skipped candidates have no result to explain");
+        assertTrue(err().contains("Usage: explain"));
+        assertEquals(0, explanationCalls.get());
+    }
+
+    @Test
+    void afterAProfileEditExplainRescoresThatMatchFirstAndSaysSo() {
+        shell("login p001", "match", "edit budget=1500", "n", "explain 1", "quit");
+        assertTrue(out().contains("re-scored first"));
+        assertEquals(6, scoringCalls.get(), "five for the ranking, one for the re-scored pair");
+        assertEquals(1, explanationCalls.get());
+    }
+
+    @Test
+    void aModelFailureWhileExplainingIsReportedAndNothingIsCached() {
+        explanationsFail = true;
+        shell("login p001", "match", "explain 1", "quit");
+        assertTrue(err().contains("The AI service failed"));
+        assertFalse(out().contains("Why p002 matched:"));
     }
 }

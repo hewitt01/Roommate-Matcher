@@ -23,6 +23,7 @@ public class User implements ProfileSubject {
     private String location;
     private LocalDate moveInDate;
     private boolean active = true;
+    private int revision;
     private LifestyleProfile lifestyleProfile;
     private final Shortlist shortlist = new Shortlist();
     private final List<ProfileObserver> observers = new ArrayList<>();
@@ -58,11 +59,13 @@ public class User implements ProfileSubject {
         if (newBudget != null) budget = newBudget;
         if (newLocation != null) location = newLocation.trim();
         if (newMoveIn != null) moveInDate = newMoveIn;
+        revision++;
         notifyObservers();
     }
 
     public void attachLifestyleProfile(LifestyleProfile profile) {
         this.lifestyleProfile = Objects.requireNonNull(profile, "profile");
+        revision++;
         notifyObservers();
     }
 
@@ -99,6 +102,9 @@ public class User implements ProfileSubject {
     public String getLocation() { return location; }
     public LocalDate getMoveInDate() { return moveInDate; }
     public boolean isActive() { return active; }
+
+    /** Goes up by one every time the user's data or lifestyle profile changes. Lets results tell whether they are out of date. */
+    public int getRevision() { return revision; }
 
     /** Marks the user as deleted/deactivated on the platform (F09 "no longer available"). */
     public void deactivate() { this.active = false; }

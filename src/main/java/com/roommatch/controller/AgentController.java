@@ -2,7 +2,10 @@ package com.roommatch.controller;
 
 import com.roommatch.agent.CompatibilityAgent;
 import com.roommatch.agent.ElicitationAgent;
+import com.roommatch.agent.ExplanationGenerator;
+import com.roommatch.agent.MatchExplanation;
 import com.roommatch.agent.RankingOutcome;
+import com.roommatch.model.CompatibilityResult;
 import com.roommatch.model.HardFilters;
 import com.roommatch.model.LifestyleProfile;
 import com.roommatch.model.User;
@@ -11,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -23,6 +27,7 @@ public class AgentController {
     private final RankingService rankingService;
     private final Supplier<ElicitationAgent> elicitationFactory;
     private final Map<String, ElicitationAgent> elicitations = new HashMap<>();
+    private final ExplanationGenerator explanationGenerator;   // null when explanations are not configured
 
     /** Without elicitation support: elicitation calls fail with IllegalStateException. */
     public AgentController(CompatibilityAgent agent, RankingService rankingService) {
@@ -33,9 +38,16 @@ public class AgentController {
 
     public AgentController(CompatibilityAgent agent, RankingService rankingService,
                            Supplier<ElicitationAgent> elicitationFactory) {
+        this(agent, rankingService, elicitationFactory, null);
+    }
+
+    public AgentController(CompatibilityAgent agent, RankingService rankingService,
+                           Supplier<ElicitationAgent> elicitationFactory,
+                           ExplanationGenerator explanationGenerator) {
         this.agent = Objects.requireNonNull(agent, "agent");
         this.rankingService = Objects.requireNonNull(rankingService, "rankingService");
         this.elicitationFactory = Objects.requireNonNull(elicitationFactory, "elicitationFactory");
+        this.explanationGenerator = explanationGenerator;
     }
 
     /** Registers the ranking service as an observer so profile edits can mark results outdated (F10). */
@@ -57,6 +69,24 @@ public class AgentController {
         RankingOutcome outcome = agent.rankCandidates(user, filters);
         rankingService.markRanked(user);
         return outcome;
+    }
+
+    /**
+     * F05. Explains why this candidate matched. If the stored result is missing or was computed
+     * before the user's latest profile change, the pair is re-scored first, so the explanation
+     * is never built on outdated numbers. A finished explanation is kept on the result and
+     * reused, so asking again costs nothing.
+     */
+    public MatchExplanation getExplanation(User user, User candidate) {
+        if (explanationGenerator == null) {
+            throw new IllegalStateException("Match explanations are not configured.");
+        }
+        Optional<CompatibilityResult> fresh = agent.getFreshResult(user, candidate);
+        CompatibilityResult result = fresh.orElseGet(() -> agent.rescore(user, candidate));
+        if (result.getExplanation().isEmpty()) {
+            result.attachExplanation(explanationGenerator.generate(user, result));
+        }
+        return new MatchExplanation(result, result.getExplanation().orElseThrow(), fresh.isEmpty());
     }
 
     // ---- F01: profile elicitation. One conversation per user; a new one replaces any unfinished one. ----
