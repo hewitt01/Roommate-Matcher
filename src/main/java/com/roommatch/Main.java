@@ -27,7 +27,9 @@ public final class Main {
 
     public static void main(String[] args) {
         int exitCode = new RoomMatchCLI(System.out, System.err, System.in, Main::buildServices).run(args);
-        System.exit(exitCode);
+        if (exitCode != RoomMatchCLI.KEEP_RUNNING) {
+            System.exit(exitCode);
+        }
     }
 
     static RoomMatchCLI.Services buildServices() {

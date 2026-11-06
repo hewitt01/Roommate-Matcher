@@ -32,6 +32,9 @@ public class RoomMatchCLI {
         Services create();
     }
 
+    /** Returned by {@link #run} when a window is open and the program must keep running. */
+    public static final int KEEP_RUNNING = -1;
+
     private final PrintStream out;
     private final PrintStream err;
     private final InputStream in;
@@ -62,10 +65,26 @@ public class RoomMatchCLI {
                 return match(Arrays.copyOfRange(args, 1, args.length));
             case "shell":
                 return shell();
+            case "gui":
+                return gui();
             default:
                 err.println("Unknown command: " + args[0]);
                 err.println(usage());
                 return 2;
+        }
+    }
+
+    private int gui() {
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            err.println("This computer has no display, so the window cannot open. Use 'shell' instead.");
+            return 1;
+        }
+        try {
+            RoomMatchGUI.launch(factory.create());
+            return KEEP_RUNNING;
+        } catch (ConfigException | PlatformException e) {
+            err.println("Setup problem: " + e.getMessage());
+            return 1;
         }
     }
 
@@ -130,6 +149,7 @@ public class RoomMatchCLI {
                 "RoomMatch AI - command line",
                 "",
                 "Commands:",
+                "  gui                             Open the graphical window",
                 "  shell                           Interactive mode: log in, build your profile, match, explain, friction, ask, shortlist, edit",
                 "  match --as <userId> [options]   One-shot: rank compatible roommates for a platform user",
                 "  help                            Show this message",
