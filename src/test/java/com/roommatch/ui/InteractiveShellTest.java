@@ -6,6 +6,7 @@ import com.roommatch.agent.CompatibilityAgent;
 import com.roommatch.agent.ElicitationAgent;
 import com.roommatch.agent.ExplanationGenerator;
 import com.roommatch.agent.FrictionMapGenerator;
+import com.roommatch.agent.MatchQuestionAnswerer;
 import com.roommatch.agent.LLMCompatibilityScorer;
 import com.roommatch.agent.ProfileAccessTool;
 import com.roommatch.agent.ToolManager;
@@ -17,13 +18,19 @@ import com.roommatch.platform.HousingPlatformClient;
 import com.roommatch.repository.CandidateRepository;
 import com.roommatch.repository.PlatformProfileAdapter;
 import com.roommatch.service.RankingService;
+import com.roommatch.service.ShortlistService;
+import com.roommatch.service.ShortlistStore;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +50,9 @@ class InteractiveShellTest {
     private final AtomicInteger explanationCalls = new AtomicInteger();
     private boolean explanationsFail;
     private final AtomicInteger frictionCalls = new AtomicInteger();
+    private final AtomicInteger questionCalls = new AtomicInteger();
+    private boolean questionsFail;
+    private final Map<String, List<String>> shortlistData = new HashMap<>();
     private boolean frictionFails;
 
     private String out() { return outBytes.toString(StandardCharsets.UTF_8); }
@@ -58,6 +68,15 @@ class InteractiveShellTest {
 
     private LLMClient fakeModel() {
         return prompt -> {
+            if (prompt.contains("\"answerable\"")) {
+                if (questionsFail) {
+                    throw new LLMException("service down");
+                }
+                int n = questionCalls.incrementAndGet();
+                return prompt.contains("pets")
+                        ? "{\"answerable\": false, \"answer\": \"Their profile says nothing about pets.\"}"
+                        : "{\"answerable\": true, \"answer\": \"Answer number " + n + " from their profile.\"}";
+            }
             if (prompt.contains("\"frictionPoints\"")) {
                 if (frictionFails) {
                     throw new LLMException("service down");
@@ -97,9 +116,17 @@ class InteractiveShellTest {
             ToolManager tools = new ToolManager();
             tools.register(new ProfileAccessTool(repo));
             CompatibilityAgent agent = new CompatibilityAgent(tools, new LLMCompatibilityScorer(llm));
-            AgentController controller = new AgentController(
-                    agent, new RankingService(), () -> new ElicitationAgent(llm),
-                    new ExplanationGenerator(llm), new FrictionMapGenerator(llm));
+            ShortlistStore store = new ShortlistStore() {
+                @Override public List<String> load(String userId) { return shortlistData.getOrDefault(userId, List.of()); }
+                @Override public void save(String userId, List<String> ids) { shortlistData.put(userId, new ArrayList<>(ids)); }
+            };
+            AgentController controller = AgentController.builder(agent, new RankingService())
+                    .elicitation(() -> new ElicitationAgent(llm))
+                    .explanations(new ExplanationGenerator(llm))
+                    .frictionMaps(new FrictionMapGenerator(llm))
+                    .questions(new MatchQuestionAnswerer(llm))
+                    .shortlists(new ShortlistService(repo, store))
+                    .build();
             return new RoomMatchCLI.Services(controller, repo);
         };
     }
@@ -139,8 +166,8 @@ class InteractiveShellTest {
 
     @Test
     void commandsThatNeedAUserSayToLogInFirst() {
-        shell("whoami", "match", "elicit", "edit budget=1", "results", "explain 1", "friction 1", "quit");
-        assertEquals(7, count(err(), "Log in first"));
+        shell("whoami", "match", "elicit", "edit budget=1", "results", "explain 1", "friction 1", "ask 1 hello", "shortlist", "quit");
+        assertEquals(9, count(err(), "Log in first"));
     }
 
     @Test
@@ -448,5 +475,107 @@ class InteractiveShellTest {
         shell("login p001", "match", "friction 1", "quit");
         assertTrue(err().contains("The AI service failed"));
         assertFalse(out().contains("Friction map for"));
+    }
+
+    // ------------------------------------------------------------- F07 ask
+
+    @Test
+    void askAnswersFromTheCandidatesDataByRankOrId() {
+        shell("login p001", "match", "ask 1 How tidy are they?", "ask p003 Do they host guests?", "quit");
+        assertTrue(out().contains("About p002:") && out().contains("Answer number 1 from their profile."));
+        assertTrue(out().contains("About p003:") && out().contains("Answer number 2 from their profile."));
+        assertEquals(5, scoringCalls.get(), "no re-scoring for fresh results");
+    }
+
+    @Test
+    void askSaysWhenTheProfileDoesNotCoverTheQuestion() {
+        shell("login p001", "match", "ask 1 Do they have pets?", "quit");
+        assertTrue(out().contains("Their profile says nothing about pets."));
+        assertTrue(out().contains("(Their profile data does not cover this question.)"));
+    }
+
+    @Test
+    void askDoesNotCacheAnswersBecauseEveryQuestionIsDifferent() {
+        shell("login p001", "match", "ask 1 same question?", "ask 1 same question?", "quit");
+        assertEquals(2, questionCalls.get());
+    }
+
+    @Test
+    void askExplainsBadUsage() {
+        shell("login p001", "ask 1 hello", "match", "ask", "ask 1", "ask 99 hi", "ask p999 hi", "quit");
+        assertTrue(out().contains("No results yet. Type 'match' first."));
+        assertEquals(2, count(err(), "Usage: ask"));
+        assertTrue(err().contains("There is no match number 99"));
+        assertTrue(err().contains("'p999' is not in your last ranking."));
+        assertEquals(0, questionCalls.get());
+    }
+
+    @Test
+    void askAfterAProfileEditRescoresFirstAndSaysSo() {
+        shell("login p001", "match", "edit budget=1500", "n", "ask 1 anything?", "quit");
+        assertTrue(out().contains("re-scored first"));
+        assertEquals(6, scoringCalls.get());
+    }
+
+    @Test
+    void aModelFailureWhileAnsweringIsReported() {
+        questionsFail = true;
+        shell("login p001", "match", "ask 1 anything?", "quit");
+        assertTrue(err().contains("The AI service failed"));
+        assertFalse(out().contains("About p002"));
+    }
+
+    // ------------------------------------------------------- F09 shortlist
+
+    @Test
+    void shortlistAddListAndRemoveWork() {
+        shell("login p001", "match", "shortlist add 1", "shortlist add p003", "shortlist", "shortlist remove 1",
+                "shortlist remove p003", "shortlist remove p003", "shortlist", "quit");
+        assertTrue(out().contains("Added p002 to your shortlist."));
+        assertTrue(out().contains("Added p003 to your shortlist."));
+        assertTrue(out().contains("Your shortlist (2):"));
+        assertTrue(out().contains("1. p002  Toronto  rent 1500  available 2027-01-01"));
+        assertTrue(out().contains("Removed p002 from your shortlist."));
+        assertTrue(out().contains("Removed p003 from your shortlist."));
+        assertTrue(out().contains("p003 is not in your shortlist."));
+        assertTrue(out().contains("Your shortlist is empty."));
+    }
+
+    @Test
+    void addingTheSameMatchTwiceIsReported() {
+        shell("login p001", "match", "shortlist add 1", "shortlist add 1", "quit");
+        assertTrue(out().contains("p002 is already in your shortlist."));
+    }
+
+    @Test
+    void theShortlistSurvivesAcrossRunsAndLogins() {
+        shell("login p001", "match", "shortlist add 1", "quit");
+        outBytes.reset();
+        errBytes.reset();
+        shell("login p001", "shortlist", "login p002", "shortlist", "login p001", "shortlist", "quit");
+        assertEquals(2, count(out(), "Your shortlist (1):"), "p001 sees it each time");
+        assertEquals(1, count(out(), "Your shortlist is empty."), "p002 has their own, empty, shortlist");
+    }
+
+    @Test
+    void aBookmarkedPersonWhoIsGoneShowsAsNoLongerAvailable() {
+        shortlistData.put("p001", new ArrayList<>(List.of("p002", "p005", "ghost")));
+        shell("login p001", "shortlist", "quit");
+        assertTrue(out().contains("Your shortlist (3):"));
+        assertTrue(out().contains("1. p002  Toronto"));
+        assertTrue(out().contains("2. p005  no longer available"));
+        assertTrue(out().contains("3. ghost  no longer available"));
+    }
+
+    @Test
+    void shortlistExplainsBadUsage() {
+        shell("login p001", "shortlist add 1", "match", "shortlist add", "shortlist add 99", "shortlist remove",
+                "shortlist remove 5", "shortlist frobnicate", "quit");
+        assertTrue(out().contains("No results yet. Type 'match' first."));
+        assertTrue(err().contains("Usage: shortlist add"));
+        assertTrue(err().contains("There is no match number 99"));
+        assertTrue(err().contains("Usage: shortlist remove"));
+        assertTrue(err().contains("There is no shortlist entry 5 (you have 0)."));
+        assertTrue(err().contains("Unknown shortlist command 'frobnicate'"));
     }
 }

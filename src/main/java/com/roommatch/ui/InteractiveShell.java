@@ -4,6 +4,7 @@ import com.roommatch.agent.ElicitationException;
 import com.roommatch.agent.ExplanationException;
 import com.roommatch.agent.FrictionMapException;
 import com.roommatch.agent.FrictionMapView;
+import com.roommatch.agent.MatchAnswer;
 import com.roommatch.agent.MatchExplanation;
 import com.roommatch.agent.ProfileIncompleteException;
 import com.roommatch.agent.RankingOutcome;
@@ -12,10 +13,12 @@ import com.roommatch.controller.AgentController;
 import com.roommatch.llm.LLMException;
 import com.roommatch.model.CompatibilityResult;
 import com.roommatch.model.FrictionMap;
-import com.roommatch.model.InvalidProfileException;
+import com.roommatch.model.Shortlist.AddResult;
 import com.roommatch.model.LifestyleProfile;
 import com.roommatch.model.User;
 import com.roommatch.repository.CandidateRepository;
+import com.roommatch.service.ShortlistService;
+import com.roommatch.service.ShortlistStoreException;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -71,8 +74,10 @@ final class InteractiveShell {
                     } else if (!handleCommand(line)) {
                         break;
                     }
-                } catch (UsageException | InvalidProfileException | IllegalStateException e) {
+                } catch (UsageException | IllegalArgumentException | IllegalStateException e) {
                     err.println("Error: " + e.getMessage());
+                } catch (ShortlistStoreException e) {
+                    err.println("Shortlist problem: " + e.getMessage());
                 } catch (ProfileIncompleteException e) {
                     err.println(e.getMessage() + " Type 'elicit' to complete it.");
                 } catch (ElicitationException e) {
@@ -109,6 +114,8 @@ final class InteractiveShell {
             case "results" -> results();
             case "explain" -> explain(parts);
             case "friction" -> friction(parts);
+            case "ask" -> ask(line, parts);
+            case "shortlist" -> shortlist(parts);
             default -> err.println("Unknown command: " + parts[0] + ". Type 'help'.");
         }
         return true;
@@ -247,6 +254,96 @@ final class InteractiveShell {
         int n = 1;
         for (String item : items) {
             out.println(TextWrap.wrapItem(item, 78, "  " + n++ + ". ", "     "));
+        }
+    }
+
+    /** F07: a free-form question about one match, answered only from that candidate's data. */
+    private void ask(String line, String[] parts) {
+        requireUser();
+        if (parts.length < 3) {
+            throw new UsageException("Usage: ask <rank number or candidate id> <your question>");
+        }
+        if (lastOutcome == null) {
+            out.println("No results yet. Type 'match' first.");
+            return;
+        }
+        CompatibilityResult chosen = pick(parts[1]);
+        String question = line.substring(line.indexOf(parts[1], parts[0].length()) + parts[1].length()).trim();
+        MatchAnswer answer = controller.answerMatchQuestion(user, chosen.getCandidate(), question);
+        out.println("About " + chosen.getCandidate().getId() + ":");
+        if (answer.rescored()) {
+            out.println("  (Your profile changed after that ranking, so this match was re-scored first.)");
+        }
+        out.println(TextWrap.wrap(answer.text(), 78, "  "));
+        if (!answer.answerable()) {
+            out.println("  (Their profile data does not cover this question.)");
+        }
+    }
+
+    /** F09: shortlist add / remove / list. 'add' takes a number from your last ranking; 'remove' a shortlist number or id. */
+    private void shortlist(String[] parts) {
+        requireUser();
+        String sub = parts.length == 1 ? "list" : parts[1].toLowerCase(Locale.ROOT);
+        switch (sub) {
+            case "list" -> listShortlist();
+            case "add" -> {
+                if (parts.length != 3) {
+                    throw new UsageException("Usage: shortlist add <rank number or candidate id>");
+                }
+                if (lastOutcome == null) {
+                    out.println("No results yet. Type 'match' first.");
+                    return;
+                }
+                User candidate = pick(parts[2]).getCandidate();
+                AddResult result = controller.bookmark(user, candidate);
+                out.println(switch (result) {
+                    case ADDED -> "Added " + candidate.getId() + " to your shortlist.";
+                    case ALREADY_BOOKMARKED -> candidate.getId() + " is already in your shortlist.";
+                    case UNAVAILABLE -> candidate.getId() + " is no longer available.";
+                });
+            }
+            case "remove" -> {
+                if (parts.length != 3) {
+                    throw new UsageException("Usage: shortlist remove <shortlist number or candidate id>");
+                }
+                String id = shortlistIdFor(parts[2]);
+                out.println(controller.removeBookmark(user, id)
+                        ? "Removed " + id + " from your shortlist."
+                        : id + " is not in your shortlist.");
+            }
+            default -> throw new UsageException("Unknown shortlist command '" + parts[1]
+                    + "'. Use: shortlist, shortlist add <n or id>, shortlist remove <n or id>.");
+        }
+    }
+
+    private void listShortlist() {
+        var entries = controller.getShortlist(user);
+        if (entries.isEmpty()) {
+            out.println("Your shortlist is empty. Use 'shortlist add <n or id>' after a match.");
+            return;
+        }
+        out.println("Your shortlist (" + entries.size() + "):");
+        int n = 1;
+        for (ShortlistService.Entry e : entries) {
+            if (e.available()) {
+                out.printf(Locale.ROOT, "  %d. %s  %s  rent %.0f  available %s%n", n++, e.id(),
+                        e.user().getLocation(), e.user().getBudget(), e.user().getMoveInDate());
+            } else {
+                out.println("  " + n++ + ". " + e.id() + "  no longer available");
+            }
+        }
+    }
+
+    private String shortlistIdFor(String reference) {
+        try {
+            int number = Integer.parseInt(reference);
+            var entries = controller.getShortlist(user);
+            if (number < 1 || number > entries.size()) {
+                throw new UsageException("There is no shortlist entry " + number + " (you have " + entries.size() + ").");
+            }
+            return entries.get(number - 1).id();
+        } catch (NumberFormatException e) {
+            return reference;
         }
     }
 
@@ -395,6 +492,10 @@ final class InteractiveShell {
                 "  results                   Show your last ranking (marked if it is out of date)",
                 "  explain <n or id>         Why a match from your last ranking scored as it did",
                 "  friction <n or id>        Likely friction points and house rules for that match",
+                "  ask <n or id> <question>  Ask about a match (answered only from their profile data)",
+                "  shortlist                 Show your saved matches",
+                "  shortlist add <n or id>   Save a match from your last ranking",
+                "  shortlist remove <n|id>   Remove a saved match (number from the shortlist, or id)",
                 "  help                      Show this message",
                 "  quit                      Leave");
     }

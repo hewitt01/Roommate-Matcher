@@ -4,6 +4,7 @@ import com.roommatch.agent.CompatibilityAgent;
 import com.roommatch.agent.ElicitationAgent;
 import com.roommatch.agent.ExplanationGenerator;
 import com.roommatch.agent.FrictionMapGenerator;
+import com.roommatch.agent.MatchQuestionAnswerer;
 import com.roommatch.agent.LLMCompatibilityScorer;
 import com.roommatch.agent.ProfileAccessTool;
 import com.roommatch.agent.ToolManager;
@@ -14,7 +15,9 @@ import com.roommatch.llm.LLMClient;
 import com.roommatch.platform.HousingPlatformClient;
 import com.roommatch.repository.CandidateRepository;
 import com.roommatch.repository.PlatformProfileAdapter;
+import com.roommatch.service.FileShortlistStore;
 import com.roommatch.service.RankingService;
+import com.roommatch.service.ShortlistService;
 import com.roommatch.ui.RoomMatchCLI;
 import java.nio.file.Path;
 
@@ -36,9 +39,13 @@ public final class Main {
         ToolManager tools = new ToolManager();
         tools.register(new ProfileAccessTool(repository));
         CompatibilityAgent agent = new CompatibilityAgent(tools, new LLMCompatibilityScorer(llm));
-        AgentController controller = new AgentController(
-                agent, new RankingService(), () -> new ElicitationAgent(llm),
-                new ExplanationGenerator(llm), new FrictionMapGenerator(llm));
+        AgentController controller = AgentController.builder(agent, new RankingService())
+                .elicitation(() -> new ElicitationAgent(llm))
+                .explanations(new ExplanationGenerator(llm))
+                .frictionMaps(new FrictionMapGenerator(llm))
+                .questions(new MatchQuestionAnswerer(llm))
+                .shortlists(new ShortlistService(repository, new FileShortlistStore(Path.of("data", "shortlists.json"))))
+                .build();
         return new RoomMatchCLI.Services(controller, repository);
     }
 }

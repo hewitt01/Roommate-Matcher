@@ -14,3 +14,6 @@ out/
 *.iml
 .vscode/
 .DS_Store
+
+# Saved shortlists (local user data)
+data/shortlists.json

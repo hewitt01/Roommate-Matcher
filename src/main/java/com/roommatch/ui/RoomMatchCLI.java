@@ -130,7 +130,7 @@ public class RoomMatchCLI {
                 "RoomMatch AI - command line",
                 "",
                 "Commands:",
-                "  shell                           Interactive mode: log in, build your profile, match, explain, friction, edit",
+                "  shell                           Interactive mode: log in, build your profile, match, explain, friction, ask, shortlist, edit",
                 "  match --as <userId> [options]   One-shot: rank compatible roommates for a platform user",
                 "  help                            Show this message",
                 "",
