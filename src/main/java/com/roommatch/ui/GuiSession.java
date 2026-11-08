@@ -18,6 +18,7 @@ final class GuiSession {
     private User user;
     private final List<Runnable> loginListeners = new ArrayList<>();
     private final List<Runnable> profileListeners = new ArrayList<>();
+    private final List<Runnable> shortlistListeners = new ArrayList<>();
 
     GuiSession(AgentController controller, CandidateRepository repository, GuiTasks tasks) {
         this.controller = controller;
@@ -32,6 +33,8 @@ final class GuiSession {
     void onLoginChange(Runnable listener) { loginListeners.add(listener); }
 
     void onProfileChange(Runnable listener) { profileListeners.add(listener); }
+
+    void onShortlistChange(Runnable listener) { shortlistListeners.add(listener); }
 
     /** @throws IllegalArgumentException with a readable message if the id is unknown or deactivated */
     void login(String id) {
@@ -64,5 +67,9 @@ final class GuiSession {
     /** Panels call this after the logged-in user's profile changed. */
     void profileChanged() {
         profileListeners.forEach(Runnable::run);
+    }
+
+    void shortlistChanged() {
+        shortlistListeners.forEach(Runnable::run);
     }
 }

@@ -86,8 +86,10 @@ public final class RoomMatchGUI {
         frame.setLocationRelativeTo(null);
     }
 
-    /** Matches and Shortlist tabs are added in a later step. */
-    private void addMatchTabs() { }
+    private void addMatchTabs() {
+        tabs.addTab("Matches", new MatchesPanel(session, this::status));
+        tabs.addTab("Shortlist", new ShortlistPanel(session, this::status));
+    }
 
     private void login() {
         try {
