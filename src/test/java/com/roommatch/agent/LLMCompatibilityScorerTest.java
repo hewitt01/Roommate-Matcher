@@ -116,11 +116,23 @@ class LLMCompatibilityScorerTest {
     }
 
     @Test
-    void givesUpAfterTwoUnusableReplies() {
-        Script llm = new Script("nope", "still nope");
+    void givesUpAfterThreeUnusableReplies() {
+        Script llm = new Script("nope", "still nope", "no again");
         assertThrows(ScoringException.class,
                 () -> new LLMCompatibilityScorer(llm).score(user("me", FULL_A), user("c", FULL_B)));
-        assertEquals(2, llm.prompts.size());
+        assertEquals(3, llm.prompts.size());
+    }
+
+    @Test
+    void toleratesNumbersWrittenAsTextAndTrailingChatterWithBraces() {
+        Script text = new Script("{\"scoreAtoB\": \"85\", \"scoreBtoA\": \"70.5\", \"rationale\": \"ok\"}");
+        CompatibilityResult r = new LLMCompatibilityScorer(text).score(user("me", FULL_A), user("c", FULL_B));
+        assertEquals(85, r.getScoreAtoB());
+        assertEquals(70.5, r.getScoreBtoA());
+
+        Script chatter = new Script(GOOD + "\nNote: scores use the {0-100} scale.");
+        assertEquals(80, new LLMCompatibilityScorer(chatter).score(user("me", FULL_A), user("c", FULL_B)).getScoreAtoB());
+        assertEquals(1, chatter.prompts.size());
     }
 
     @Test

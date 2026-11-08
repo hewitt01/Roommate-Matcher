@@ -17,7 +17,7 @@ import java.util.Objects;
  * the prompt; the model only does the judging; deterministic code validates what comes back.
  */
 public class LLMCompatibilityScorer implements CompatibilityScorer {
-    static final int MAX_ATTEMPTS = 2;
+    static final int MAX_ATTEMPTS = 3;
 
     private final LLMClient llm;
 
@@ -92,12 +92,15 @@ public class LLMCompatibilityScorer implements CompatibilityScorer {
             return null;
         }
         int start = reply.indexOf('{');
-        int end = reply.lastIndexOf('}');
-        if (start < 0 || end <= start) {
+        if (start < 0) {
             return null;
         }
         try {
-            JsonObject json = JsonParser.parseString(reply.substring(start, end + 1)).getAsJsonObject();
+            // read only the first JSON object, so any text the model adds after it is ignored
+            com.google.gson.stream.JsonReader reader =
+                    new com.google.gson.stream.JsonReader(new java.io.StringReader(reply.substring(start)));
+            reader.setLenient(true);
+            JsonObject json = JsonParser.parseReader(reader).getAsJsonObject();
             double aToB = number(json, "scoreAtoB");
             double bToA = number(json, "scoreBtoA");
             JsonElement why = json.get("rationale");
@@ -110,9 +113,13 @@ public class LLMCompatibilityScorer implements CompatibilityScorer {
 
     private static double number(JsonObject json, String field) {
         JsonElement e = json.get(field);
-        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
+        if (e == null || !e.isJsonPrimitive()) {
             throw new IllegalArgumentException(field + " missing or not a number");
         }
-        return e.getAsDouble();
+        try {
+            return e.getAsDouble();   // accepts 85 and also "85"
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(field + " is not a number");
+        }
     }
 }
