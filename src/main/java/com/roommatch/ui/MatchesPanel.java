@@ -229,7 +229,7 @@ final class MatchesPanel extends JPanel {
         try {
             return Double.valueOf(text);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException(label + " must be a number, got '" + text + "'.");
+            throw new IllegalArgumentException(label + " must be a number, not '" + text + "'.");
         }
     }
 
@@ -241,7 +241,7 @@ final class MatchesPanel extends JPanel {
         try {
             return LocalDate.parse(text);
         } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException(label + " must look like 2027-01-15, got '" + text + "'.");
+            throw new IllegalArgumentException(label + " must look like 2027-01-15, not '" + text + "'.");
         }
     }
 

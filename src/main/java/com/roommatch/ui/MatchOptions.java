@@ -80,7 +80,7 @@ class MatchOptions {
         try {
             return Double.parseDouble(value);
         } catch (NumberFormatException e) {
-            throw new UsageException(flag + " needs a number, got '" + value + "'.");
+            throw new UsageException(flag + " needs a number, not '" + value + "'.");
         }
     }
 
@@ -88,7 +88,7 @@ class MatchOptions {
         try {
             return LocalDate.parse(value);
         } catch (DateTimeParseException e) {
-            throw new UsageException(flag + " needs a date like 2026-12-01, got '" + value + "'.");
+            throw new UsageException(flag + " needs a date like 2026-12-01, not '" + value + "'.");
         }
     }
 }

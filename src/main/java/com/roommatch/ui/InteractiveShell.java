@@ -448,7 +448,7 @@ final class InteractiveShell {
                 } else if (key != null) {
                     fields.put(key, fields.get(key) + " " + token);   // value with spaces, e.g. location=New York
                 } else {
-                    throw new UsageException("Expected key=value, got '" + token + "'.");
+                    throw new UsageException("Expected key=value, not '" + token + "'.");
                 }
             }
         }
