@@ -22,6 +22,27 @@ backend.
 Candidates with missing profile data are never guessed about: those dimensions are reported as
 "not assessed", and candidates with no lifestyle data are skipped with the reason shown.
 
+## Demo videos and report
+
+- GUI demo: https://youtu.be/vYZq3Y8OYR4
+- CLI demo: https://youtu.be/_nhAMPrtl0k
+- Stage 2 report: [stage2-report.pdf](stage2-report.pdf)
+
+Jump straight to a feature:
+
+| Feature | GUI video | CLI video |
+|---|---|---|
+| F01 Lifestyle Elicitation | [8:00](https://youtu.be/vYZq3Y8OYR4?t=480) | [7:35](https://youtu.be/_nhAMPrtl0k?t=455) |
+| F02 Profile Setup & Editing | [6:28](https://youtu.be/vYZq3Y8OYR4?t=388) | [5:55](https://youtu.be/_nhAMPrtl0k?t=355) |
+| F03 Candidate Ranking | [0:30](https://youtu.be/vYZq3Y8OYR4?t=30) | [0:40](https://youtu.be/_nhAMPrtl0k?t=40) |
+| F04 Asymmetric Compatibility Scoring | [0:30](https://youtu.be/vYZq3Y8OYR4?t=30) | [0:40](https://youtu.be/_nhAMPrtl0k?t=40) |
+| F05 Match Explanation | [3:46](https://youtu.be/vYZq3Y8OYR4?t=226) | [2:50](https://youtu.be/_nhAMPrtl0k?t=170) |
+| F06 Friction Map Generation | [4:20](https://youtu.be/vYZq3Y8OYR4?t=260) | [2:50](https://youtu.be/_nhAMPrtl0k?t=170) |
+| F07 Match Q&A | [4:51](https://youtu.be/vYZq3Y8OYR4?t=291) | [2:50](https://youtu.be/_nhAMPrtl0k?t=170) |
+| F08 Hard Filters | [1:41](https://youtu.be/vYZq3Y8OYR4?t=101) | [1:30](https://youtu.be/_nhAMPrtl0k?t=90) |
+| F09 Saved Matches / Shortlist | [5:26](https://youtu.be/vYZq3Y8OYR4?t=326) | [4:43](https://youtu.be/_nhAMPrtl0k?t=283) |
+| F10 Profile Update to Re-rank | [6:28](https://youtu.be/vYZq3Y8OYR4?t=388) | [5:55](https://youtu.be/_nhAMPrtl0k?t=355) |
+
 ## Prerequisites
 
 - Java 17 or newer (JDK, not only a JRE)
