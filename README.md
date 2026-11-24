@@ -43,6 +43,12 @@ Jump straight to a feature:
 | F09 Saved Matches / Shortlist | [5:26](https://youtu.be/vYZq3Y8OYR4?t=326) | [4:43](https://youtu.be/_nhAMPrtl0k?t=283) |
 | F10 Profile Update to Re-rank | [6:28](https://youtu.be/vYZq3Y8OYR4?t=388) | [5:55](https://youtu.be/_nhAMPrtl0k?t=355) |
 
+## Screenshots
+
+Screenshots of every feature running against the live model are in [`docs/screenshots`](docs/screenshots).
+File names give the interface and the feature (for example `gui-04-F05-explain.png`, `cli-03-F05-explain.png`).
+Each one is captioned in Section 2 of the [Stage 2 report](stage2-report.pdf).
+
 ## Prerequisites
 
 - Java 17 or newer (JDK, not only a JRE)
